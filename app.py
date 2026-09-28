@@ -22,27 +22,17 @@ AUDIO_DIR = Path(os.environ.get("AUDIO_DIR", "audios"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-# NÃO altere aqui.
 # O token verdadeiro continua no Environment do Render.
-DEVICE_TOKEN = os.environ.get(
-    "DEVICE_TOKEN",
-    "troque-este-token"
-)
+DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "troque-este-token")
 
 
 HTML = """
 <!doctype html>
-
 <html lang="pt-BR">
 
 <head>
-
 <meta charset="utf-8">
-
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1"
->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title>Documentos recebidos</title>
 
@@ -67,9 +57,7 @@ h1 {
 }
 
 
-/* =========================
-   ÁREA DE ÁUDIO
-   ========================= */
+/* ÁUDIO */
 
 .audio-box {
     background: #1d1d1d;
@@ -98,6 +86,11 @@ button {
     font-size: 14px;
 }
 
+button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 .gravar {
     background: #c62828;
     color: white;
@@ -118,11 +111,6 @@ button {
     color: white;
 }
 
-button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
 #statusGravacao {
     margin-top: 15px;
     font-weight: bold;
@@ -130,6 +118,8 @@ button:disabled {
 
 #tempo {
     color: #ff5252;
+    margin-top: 8px;
+    font-size: 20px;
 }
 
 #audioPreview {
@@ -142,12 +132,11 @@ button:disabled {
 #statusEnvio {
     margin-top: 15px;
     color: #90caf9;
+    font-weight: bold;
 }
 
 
-/* =========================
-   FOTOS
-   ========================= */
+/* FOTOS */
 
 .top {
     display: flex;
@@ -183,8 +172,7 @@ button:disabled {
 
 .photos {
     display: grid;
-    grid-template-columns:
-        repeat(auto-fill, minmax(190px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 12px;
     margin-top: 15px;
 }
@@ -240,115 +228,90 @@ a.btn {
 }
 
 </style>
-
 </head>
 
 
 <body>
 
-
-<!-- ======================================================
-     ÁREA DE ÁUDIO
-     ====================================================== -->
+<!-- ÁUDIO -->
 
 <div class="audio-box">
 
     <h2>🎙 Resposta em áudio</h2>
 
     <div>
-        Grave a mensagem, ouça e somente depois envie para a ESP32.
+        Grave a mensagem, ouça e depois envie para a ESP32.
     </div>
-
 
     <div class="audio-buttons">
 
         <button
             id="btnGravar"
             class="gravar"
-            onclick="iniciarGravacao()"
-        >
+            onclick="iniciarGravacao()">
             🎙 Gravar áudio
         </button>
-
 
         <button
             id="btnParar"
             class="parar"
             onclick="pararGravacao()"
-            disabled
-        >
+            disabled>
             ⏹ Parar
         </button>
-
 
         <button
             id="btnNovo"
             class="novo"
             onclick="gravarNovamente()"
-            disabled
-        >
+            disabled>
             🗑 Gravar novamente
         </button>
-
 
         <button
             id="btnEnviar"
             class="enviar"
             onclick="enviarAudio()"
-            disabled
-        >
+            disabled>
             📤 Enviar para ESP32
         </button>
 
     </div>
 
-
     <div id="statusGravacao">
         Pronto para gravar.
     </div>
 
-
-    <div id="tempo">
-    </div>
-
+    <div id="tempo"></div>
 
     <audio
         id="audioPreview"
-        controls
-    >
+        controls>
     </audio>
 
-
-    <div id="statusEnvio">
-    </div>
+    <div id="statusEnvio"></div>
 
 </div>
 
 
-<!-- ======================================================
-     FOTOS
-     ====================================================== -->
+<!-- FOTOS -->
 
 <div class="top">
 
     <div>
-
         <h1>Documentos recebidos</h1>
 
         <div class="sub">
             Sequências enviadas pela ESP32-CAM
         </div>
-
     </div>
-
 
     {% if groups %}
 
     <form
         method="post"
         action="/excluir-todas"
-        onsubmit="return confirm('Excluir TODAS as fotos?')"
-    >
+        onsubmit="return confirm('Excluir TODAS as fotos?')">
 
         <button class="all">
             Excluir tudo
@@ -365,7 +328,6 @@ a.btn {
 
 <section class="seq">
 
-
     <div class="seqhead">
 
         <div>
@@ -380,12 +342,10 @@ a.btn {
 
         </div>
 
-
         <form
             method="post"
             action="/excluir-sequencia/{{ g.id }}"
-            onsubmit="return confirm('Excluir esta sequência inteira?')"
-        >
+            onsubmit="return confirm('Excluir esta sequência inteira?')">
 
             <button class="all">
                 Excluir sequência
@@ -398,47 +358,37 @@ a.btn {
 
     <div class="photos">
 
-
         {% for p in g.photos %}
 
         <div class="card">
 
-
             <a
                 href="/foto/{{ p.file }}"
-                target="_blank"
-            >
+                target="_blank">
 
                 <img
                     src="/foto/{{ p.file }}"
-                    loading="lazy"
-                >
+                    loading="lazy">
 
             </a>
-
 
             <div class="num">
                 Foto {{ p.number }}
             </div>
 
-
             <div class="actions">
-
 
                 <a
                     class="btn open"
                     href="/foto/{{ p.file }}"
-                    target="_blank"
-                >
+                    target="_blank">
                     Abrir
                 </a>
-
 
                 <form
                     method="post"
                     action="/excluir/{{ p.file }}"
-                    onsubmit="return confirm('Excluir esta foto?')"
-                >
+                    onsubmit="return confirm('Excluir esta foto?')">
 
                     <button class="del">
                         Excluir
@@ -446,48 +396,31 @@ a.btn {
 
                 </form>
 
-
             </div>
-
 
         </div>
 
         {% endfor %}
 
-
     </div>
-
 
 </section>
 
 {% else %}
 
-<p>
-    Nenhuma sequência recebida ainda.
-</p>
+<p>Nenhuma sequência recebida ainda.</p>
 
 {% endfor %}
 
 
-
-<!-- ======================================================
-     JAVASCRIPT DO GRAVADOR
-     ====================================================== -->
-
 <script>
 
 let mediaRecorder = null;
-
 let audioChunks = [];
-
 let audioBlob = null;
-
 let audioURL = null;
-
 let inicioGravacao = null;
-
 let timerInterval = null;
-
 
 
 async function iniciarGravacao() {
@@ -499,113 +432,68 @@ async function iniciarGravacao() {
                 audio: true
             });
 
-
         audioChunks = [];
-
         audioBlob = null;
 
+        mediaRecorder = new MediaRecorder(stream);
 
-        mediaRecorder =
-            new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = function(event) {
 
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
 
-        mediaRecorder.ondataavailable =
-            function(event) {
-
-                if (event.data.size > 0) {
-
-                    audioChunks.push(
-                        event.data
-                    );
-
-                }
-
-            };
+        };
 
 
-        mediaRecorder.onstop =
-            function() {
+        mediaRecorder.onstop = function() {
 
-                const tipo =
-                    mediaRecorder.mimeType
-                    || "audio/webm";
+            const tipo =
+                mediaRecorder.mimeType || "audio/webm";
 
+            audioBlob =
+                new Blob(
+                    audioChunks,
+                    { type: tipo }
+                );
 
-                audioBlob =
-                    new Blob(
-                        audioChunks,
-                        {
-                            type: tipo
-                        }
-                    );
+            if (audioURL) {
+                URL.revokeObjectURL(audioURL);
+            }
 
+            audioURL =
+                URL.createObjectURL(audioBlob);
 
-                if (audioURL) {
+            const player =
+                document.getElementById("audioPreview");
 
-                    URL.revokeObjectURL(
-                        audioURL
-                    );
+            player.src = audioURL;
+            player.style.display = "block";
 
-                }
+            document.getElementById(
+                "statusGravacao"
+            ).innerText =
+                "Áudio gravado. Ouça antes de enviar.";
 
+            document.getElementById(
+                "btnNovo"
+            ).disabled = false;
 
-                audioURL =
-                    URL.createObjectURL(
-                        audioBlob
-                    );
+            document.getElementById(
+                "btnEnviar"
+            ).disabled = false;
 
-
-                const player =
-                    document.getElementById(
-                        "audioPreview"
-                    );
-
-
-                player.src =
-                    audioURL;
-
-
-                player.style.display =
-                    "block";
-
-
-                document.getElementById(
-                    "statusGravacao"
-                ).innerText =
-                    "Áudio gravado. Ouça antes de enviar.";
-
-
-                document.getElementById(
-                    "btnNovo"
-                ).disabled =
-                    false;
-
-
-                document.getElementById(
-                    "btnEnviar"
-                ).disabled =
-                    false;
-
-
-                stream
-                    .getTracks()
-                    .forEach(
-                        track =>
-                            track.stop()
-                    );
-
-            };
+            stream.getTracks().forEach(
+                track => track.stop()
+            );
+        };
 
 
         mediaRecorder.start();
 
-
-        inicioGravacao =
-            Date.now();
-
+        inicioGravacao = Date.now();
 
         atualizarTempo();
-
 
         timerInterval =
             setInterval(
@@ -613,42 +501,29 @@ async function iniciarGravacao() {
                 250
             );
 
-
         document.getElementById(
             "btnGravar"
-        ).disabled =
-            true;
-
+        ).disabled = true;
 
         document.getElementById(
             "btnParar"
-        ).disabled =
-            false;
-
+        ).disabled = false;
 
         document.getElementById(
             "btnNovo"
-        ).disabled =
-            true;
-
+        ).disabled = true;
 
         document.getElementById(
             "btnEnviar"
-        ).disabled =
-            true;
-
+        ).disabled = true;
 
         document.getElementById(
             "statusEnvio"
-        ).innerText =
-            "";
-
+        ).innerText = "";
 
         document.getElementById(
             "statusGravacao"
-        ).innerText =
-            "🔴 Gravando...";
-
+        ).innerText = "🔴 Gravando...";
 
     }
 
@@ -659,44 +534,27 @@ async function iniciarGravacao() {
         ).innerText =
             "Não foi possível acessar o microfone.";
 
-        console.error(
-            erro
-        );
-
+        console.error(erro);
     }
-
 }
-
 
 
 function atualizarTempo() {
 
     if (!inicioGravacao) {
-
         return;
-
     }
-
 
     const segundos =
         Math.floor(
-            (
-                Date.now()
-                - inicioGravacao
-            )
-            / 1000
+            (Date.now() - inicioGravacao) / 1000
         );
-
 
     const minutos =
-        Math.floor(
-            segundos / 60
-        );
-
+        Math.floor(segundos / 60);
 
     const resto =
         segundos % 60;
-
 
     document.getElementById(
         "tempo"
@@ -704,148 +562,94 @@ function atualizarTempo() {
         String(minutos).padStart(2, "0")
         + ":"
         + String(resto).padStart(2, "0");
-
 }
-
 
 
 function pararGravacao() {
 
     if (
-        mediaRecorder
-        &&
-        mediaRecorder.state
-        !== "inactive"
+        mediaRecorder &&
+        mediaRecorder.state !== "inactive"
     ) {
-
         mediaRecorder.stop();
-
     }
 
-
-    clearInterval(
-        timerInterval
-    );
-
+    clearInterval(timerInterval);
 
     document.getElementById(
         "btnParar"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 
     document.getElementById(
         "btnGravar"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 }
-
 
 
 function gravarNovamente() {
 
     audioBlob = null;
-
     audioChunks = [];
-
 
     if (audioURL) {
 
-        URL.revokeObjectURL(
-            audioURL
-        );
-
+        URL.revokeObjectURL(audioURL);
         audioURL = null;
-
     }
 
-
     const player =
-        document.getElementById(
-            "audioPreview"
-        );
-
+        document.getElementById("audioPreview");
 
     player.pause();
-
-    player.removeAttribute(
-        "src"
-    );
-
-    player.style.display =
-        "none";
-
+    player.removeAttribute("src");
+    player.style.display = "none";
 
     document.getElementById(
         "btnGravar"
-    ).disabled =
-        false;
-
+    ).disabled = false;
 
     document.getElementById(
         "btnParar"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 
     document.getElementById(
         "btnNovo"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 
     document.getElementById(
         "btnEnviar"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 
     document.getElementById(
         "tempo"
-    ).innerText =
-        "";
-
+    ).innerText = "";
 
     document.getElementById(
         "statusEnvio"
-    ).innerText =
-        "";
-
+    ).innerText = "";
 
     document.getElementById(
         "statusGravacao"
     ).innerText =
         "Pronto para gravar novamente.";
-
 }
-
 
 
 async function enviarAudio() {
 
     if (!audioBlob) {
-
         return;
-
     }
 
-
     const botao =
-        document.getElementById(
-            "btnEnviar"
-        );
+        document.getElementById("btnEnviar");
 
-
-    botao.disabled =
-        true;
-
+    botao.disabled = true;
 
     document.getElementById(
         "statusEnvio"
     ).innerText =
         "Enviando áudio...";
-
 
     try {
 
@@ -857,41 +661,32 @@ async function enviarAudio() {
 
                     headers: {
                         "Content-Type":
-                            audioBlob.type
-                            || "audio/webm"
+                            audioBlob.type || "audio/webm"
                     },
 
-                    body:
-                        audioBlob
+                    body: audioBlob
                 }
             );
-
 
         const dados =
             await resposta.json();
 
-
         if (!resposta.ok) {
 
             throw new Error(
-                dados.error
-                || "Erro no envio"
+                dados.error || "Erro no envio"
             );
-
         }
-
 
         document.getElementById(
             "statusEnvio"
         ).innerText =
             "✅ Áudio enviado. Aguardando a ESP32.";
 
-
         document.getElementById(
             "statusGravacao"
         ).innerText =
             "Mensagem pronta para a ESP32.";
-
 
     }
 
@@ -902,24 +697,15 @@ async function enviarAudio() {
         ).innerText =
             "❌ Erro ao enviar o áudio.";
 
+        botao.disabled = false;
 
-        botao.disabled =
-            false;
-
-
-        console.error(
-            erro
-        );
-
+        console.error(erro);
     }
-
 }
 
 </script>
 
-
 </body>
-
 </html>
 """
 
@@ -929,7 +715,6 @@ async function enviarAudio() {
 # ==========================================================
 
 def safe(value):
-
     return (
         bool(value)
         and Path(value).name == value
@@ -946,34 +731,20 @@ def parse_file(p):
     parts = p.stem.split("__")
 
     if len(parts) < 4:
-
         return None
 
-
     try:
-
         number = int(
-            parts[2].replace(
-                "photo",
-                ""
-            )
+            parts[2].replace("photo", "")
         )
-
-    except:
-
+    except Exception:
         number = 0
 
-
     return {
-
         "file": p.name,
-
         "device": parts[0],
-
         "seq": parts[1],
-
         "number": number,
-
         "stamp": parts[3],
     }
 
@@ -985,99 +756,60 @@ def parse_file(p):
 @app.get("/")
 def index():
 
-    grouped =
-        defaultdict(list)
+    grouped = defaultdict(list)
 
+    for p in UPLOAD_DIR.glob("*.jpg"):
 
-    for p in UPLOAD_DIR.glob(
-        "*.jpg"
-    ):
-
-        info =
-            parse_file(p)
-
+        info = parse_file(p)
 
         if info:
-
-            grouped[
-                info["seq"]
-            ].append(info)
-
+            grouped[info["seq"]].append(info)
 
     groups = []
 
-
     for sequence_id, photos in grouped.items():
 
-
         photos.sort(
-            key=lambda x:
-                x["number"]
+            key=lambda x: x["number"]
         )
 
-
-        stamp =
-            max(
-                x["stamp"]
-                for x in photos
-            )
-
+        stamp = max(
+            x["stamp"] for x in photos
+        )
 
         try:
 
-            dt =
-                datetime.strptime(
-                    stamp,
-                    "%Y%m%d-%H%M%S-%f"
-                ).replace(
-                    tzinfo=timezone.utc
-                )
+            dt = datetime.strptime(
+                stamp,
+                "%Y%m%d-%H%M%S-%f"
+            ).replace(
+                tzinfo=timezone.utc
+            )
 
+            shown = dt.strftime(
+                "%d/%m/%Y - %H:%M:%S UTC"
+            )
 
-            shown =
-                dt.strftime(
-                    "%d/%m/%Y - %H:%M:%S UTC"
-                )
+        except Exception:
 
-
-        except:
-
-            shown =
-                stamp
-
+            shown = stamp
 
         groups.append({
-
-            "id":
-                sequence_id,
-
-            "photos":
-                photos,
-
-            "stamp":
-                stamp,
-
-            "time":
-                shown,
+            "id": sequence_id,
+            "photos": photos,
+            "stamp": stamp,
+            "time": shown,
         })
 
-
     groups.sort(
-        key=lambda g:
-            g["stamp"],
+        key=lambda g: g["stamp"],
         reverse=True
     )
 
-
-    total =
-        len(groups)
-
+    total = len(groups)
 
     for i, g in enumerate(groups):
-
-        g["display"] =
-            f"{total - i:03d}"
-
+        g["display"] = f"{total - i:03d}"
 
     return render_template_string(
         HTML,
@@ -1104,13 +836,10 @@ def health():
 @app.post("/upload")
 def upload():
 
-
-    token =
-        request.headers.get(
-            "X-Device-Token",
-            ""
-        )
-
+    token = request.headers.get(
+        "X-Device-Token",
+        ""
+    )
 
     if token != DEVICE_TOKEN:
 
@@ -1119,82 +848,57 @@ def upload():
         ), 401
 
 
-    device =
-        request.headers.get(
-            "X-Device-ID",
-            "camera001"
-        )
+    device = request.headers.get(
+        "X-Device-ID",
+        "camera001"
+    )
 
-
-    device =
-        "".join(
-
-            c
-            for c in device
-
-            if c.isalnum()
-            or c in "-_"
-
-        )[:40]
-
+    device = "".join(
+        c
+        for c in device
+        if c.isalnum() or c in "-_"
+    )[:40]
 
     if not device:
-
-        device =
-            "camera001"
+        device = "camera001"
 
 
-    sequence_id =
-        request.headers.get(
-            "X-Sequence-ID",
-            "sem-sequencia"
-        )
+    sequence_id = request.headers.get(
+        "X-Sequence-ID",
+        "sem-sequencia"
+    )
 
-
-    sequence_id =
-        "".join(
-
-            c
-            for c in sequence_id
-
-            if c.isalnum()
-            or c in "-_"
-
-        )[:80]
-
+    sequence_id = "".join(
+        c
+        for c in sequence_id
+        if c.isalnum() or c in "-_"
+    )[:80]
 
     if not sequence_id:
-
-        sequence_id =
-            "sem-sequencia"
+        sequence_id = "sem-sequencia"
 
 
     try:
 
-        number =
-            int(
-                request.headers.get(
-                    "X-Photo-Number",
-                    "0"
-                )
+        number = int(
+            request.headers.get(
+                "X-Photo-Number",
+                "0"
             )
+        )
 
-    except:
+    except Exception:
 
         number = 0
 
 
     data = None
 
-
     if (
         request.content_type
-        and "image/jpeg"
-        in request.content_type
+        and "image/jpeg" in request.content_type
     ):
-
-        data =
-            request.get_data()
+        data = request.get_data()
 
 
     if not data:
@@ -1211,16 +915,14 @@ def upload():
         ), 413
 
 
-    stamp =
-        datetime.now(
-            timezone.utc
-        ).strftime(
-            "%Y%m%d-%H%M%S-%f"
-        )
+    stamp = datetime.now(
+        timezone.utc
+    ).strftime(
+        "%Y%m%d-%H%M%S-%f"
+    )
 
 
     name = (
-
         f"{device}"
         f"__{sequence_id}"
         f"__photo{number:02d}"
@@ -1229,33 +931,23 @@ def upload():
     )
 
 
-    (
-        UPLOAD_DIR
-        / name
-    ).write_bytes(
-        data
-    )
+    (UPLOAD_DIR / name).write_bytes(data)
 
 
     return jsonify(
-
         ok=True,
-
         arquivo=name
     )
 
 
 # ==========================================================
-# GRAVAÇÃO DE ÁUDIO VINDO DO NAVEGADOR
+# RECEBER ÁUDIO DO NAVEGADOR
 # ==========================================================
 
 @app.post("/enviar-audio")
 def enviar_audio():
 
-
-    data =
-        request.get_data()
-
+    data = request.get_data()
 
     if not data:
 
@@ -1264,8 +956,6 @@ def enviar_audio():
         ), 400
 
 
-    # Limite de 10 MB
-
     if len(data) > 10 * 1024 * 1024:
 
         return jsonify(
@@ -1273,82 +963,57 @@ def enviar_audio():
         ), 413
 
 
-    content_type =
-        request.content_type or ""
+    content_type = request.content_type or ""
 
-
-    # Extensão aproximada de acordo
-    # com o formato usado pelo navegador
 
     if "ogg" in content_type:
-
         extensao = ".ogg"
 
     elif "mp4" in content_type:
-
         extensao = ".m4a"
 
     else:
-
         extensao = ".webm"
 
 
-    stamp =
-        datetime.now(
-            timezone.utc
-        ).strftime(
-            "%Y%m%d-%H%M%S-%f"
-        )
-
-
-    nome =
-        f"audio__{stamp}{extensao}"
-
-
-    (
-        AUDIO_DIR
-        / nome
-    ).write_bytes(
-        data
+    stamp = datetime.now(
+        timezone.utc
+    ).strftime(
+        "%Y%m%d-%H%M%S-%f"
     )
 
 
-    # Este arquivo passa a ser o áudio
-    # mais recente aguardando a ESP32.
-
-    arquivo_atual =
-        AUDIO_DIR / "pendente.txt"
+    nome = f"audio__{stamp}{extensao}"
 
 
-    arquivo_atual.write_text(
+    (AUDIO_DIR / nome).write_bytes(data)
+
+
+    # Indica qual é a mensagem aguardando a ESP32.
+    (AUDIO_DIR / "pendente.txt").write_text(
         nome,
         encoding="utf-8"
     )
 
 
     return jsonify(
-
         ok=True,
-
         arquivo=nome,
-
         status="aguardando_esp32"
     )
 
 
 # ==========================================================
-# ESP32 CONSULTAR SE EXISTE ÁUDIO
+# ESP32 CONSULTA SE EXISTE ÁUDIO
 # ==========================================================
 
 @app.get("/audio-pendente")
 def audio_pendente():
 
-
-    token =
-        request.headers.get(
-            "X-Device-Token",
-            ""
-        )
+    token = request.headers.get(
+        "X-Device-Token",
+        ""
+    )
 
 
     if token != DEVICE_TOKEN:
@@ -1358,25 +1023,22 @@ def audio_pendente():
         ), 401
 
 
-    arquivo_atual =
-        AUDIO_DIR / "pendente.txt"
+    pendente = AUDIO_DIR / "pendente.txt"
 
 
-    if not arquivo_atual.exists():
+    if not pendente.exists():
 
         return jsonify(
             pendente=False
         )
 
 
-    nome =
-        arquivo_atual.read_text(
-            encoding="utf-8"
-        ).strip()
+    nome = pendente.read_text(
+        encoding="utf-8"
+    ).strip()
 
 
-    arquivo =
-        AUDIO_DIR / nome
+    arquivo = AUDIO_DIR / nome
 
 
     if not arquivo.exists():
@@ -1387,46 +1049,37 @@ def audio_pendente():
 
 
     return jsonify(
-
         pendente=True,
-
         arquivo=nome,
-
         url=f"/baixar-audio/{nome}"
     )
 
 
 # ==========================================================
-# ESP32 BAIXAR O ÁUDIO
+# ESP32 BAIXA O ÁUDIO
 # ==========================================================
 
 @app.get("/baixar-audio/<name>")
 def baixar_audio(name):
 
-
-    token =
-        request.headers.get(
-            "X-Device-Token",
-            ""
-        )
+    token = request.headers.get(
+        "X-Device-Token",
+        ""
+    )
 
 
     if token != DEVICE_TOKEN:
-
         abort(401)
 
 
     if not safe(name):
-
         abort(404)
 
 
-    arquivo =
-        AUDIO_DIR / name
+    arquivo = AUDIO_DIR / name
 
 
     if not arquivo.is_file():
-
         abort(404)
 
 
@@ -1443,18 +1096,14 @@ def baixar_audio(name):
 @app.get("/foto/<path:name>")
 def foto(name):
 
-
     if not safe(name):
-
         abort(404)
 
 
-    arquivo =
-        UPLOAD_DIR / name
+    arquivo = UPLOAD_DIR / name
 
 
     if not arquivo.is_file():
-
         abort(404)
 
 
@@ -1465,24 +1114,20 @@ def foto(name):
 
 
 # ==========================================================
-# EXCLUIR FOTO
+# EXCLUIR UMA FOTO
 # ==========================================================
 
 @app.post("/excluir/<name>")
 def excluir(name):
 
-
     if not safe(name):
-
         abort(400)
 
 
-    arquivo =
-        UPLOAD_DIR / name
+    arquivo = UPLOAD_DIR / name
 
 
     if arquivo.is_file():
-
         arquivo.unlink()
 
 
@@ -1492,34 +1137,24 @@ def excluir(name):
 
 
 # ==========================================================
-# EXCLUIR SEQUÊNCIA
+# EXCLUIR UMA SEQUÊNCIA
 # ==========================================================
 
 @app.post("/excluir-sequencia/<sequence_id>")
 def excluir_sequencia(sequence_id):
 
-
     if not safe(sequence_id):
-
         abort(400)
 
 
-    for p in UPLOAD_DIR.glob(
-        "*.jpg"
-    ):
+    for p in UPLOAD_DIR.glob("*.jpg"):
 
-
-        info =
-            parse_file(p)
-
+        info = parse_file(p)
 
         if (
             info
-            and
-            info["seq"]
-            == sequence_id
+            and info["seq"] == sequence_id
         ):
-
             p.unlink()
 
 
@@ -1535,12 +1170,9 @@ def excluir_sequencia(sequence_id):
 @app.post("/excluir-todas")
 def excluir_todas():
 
-
     for p in UPLOAD_DIR.glob("*"):
 
-
         if p.is_file():
-
             p.unlink()
 
 
@@ -1550,23 +1182,19 @@ def excluir_todas():
 
 
 # ==========================================================
-# EXECUÇÃO LOCAL
+# EXECUÇÃO
 # ==========================================================
 
 if __name__ == "__main__":
 
-    port =
-        int(
-            os.environ.get(
-                "PORT",
-                "10000"
-            )
+    port = int(
+        os.environ.get(
+            "PORT",
+            "10000"
         )
-
+    )
 
     app.run(
-
         host="0.0.0.0",
-
         port=port
     )
