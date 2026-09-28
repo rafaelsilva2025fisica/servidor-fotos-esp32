@@ -16,23 +16,11 @@ from flask import (
 
 app = Flask(__name__)
 
-# ==========================================================
-# PASTAS
-# ==========================================================
-
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "uploads"))
 AUDIO_DIR = Path(os.environ.get("AUDIO_DIR", "audios"))
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-
-
-# ==========================================================
-# TOKEN
-#
-# NAO COLOQUE O TOKEN AQUI.
-# O TOKEN VERDADEIRO CONTINUA NO ENVIRONMENT DO RENDER.
-# ==========================================================
 
 DEVICE_TOKEN = os.environ.get(
     "DEVICE_TOKEN",
@@ -40,13 +28,8 @@ DEVICE_TOKEN = os.environ.get(
 )
 
 
-# ==========================================================
-# PAGINA HTML
-# ==========================================================
-
 HTML = """
 <!doctype html>
-
 <html lang="pt-BR">
 
 <head>
@@ -59,7 +42,6 @@ HTML = """
 >
 
 <title>Documentos recebidos</title>
-
 
 <style>
 
@@ -80,11 +62,6 @@ h1 {
     color: #aaa;
     margin-bottom: 22px;
 }
-
-
-/* ========================================================
-   AUDIO
-   ======================================================== */
 
 .audio-box {
     background: #1d1d1d;
@@ -123,11 +100,7 @@ button:disabled {
     color: white;
 }
 
-.parar {
-    background: #555;
-    color: white;
-}
-
+.parar,
 .novo {
     background: #555;
     color: white;
@@ -161,11 +134,6 @@ button:disabled {
     color: #90caf9;
     font-weight: bold;
 }
-
-
-/* ========================================================
-   FOTOS
-   ======================================================== */
 
 .top {
     display: flex;
@@ -261,22 +229,15 @@ a.btn {
 
 </head>
 
-
 <body>
-
-
-<!-- ======================================================
-     AREA DE AUDIO
-     ====================================================== -->
 
 <div class="audio-box">
 
     <h2>🎙 Resposta em áudio</h2>
 
     <div>
-        Grave a mensagem, ouça e depois envie para a ESP32.
+        Grave, ouça e depois envie para a ESP32.
     </div>
-
 
     <div class="audio-buttons">
 
@@ -288,7 +249,6 @@ a.btn {
             🎙 Gravar áudio
         </button>
 
-
         <button
             id="btnParar"
             class="parar"
@@ -298,7 +258,6 @@ a.btn {
             ⏹ Parar
         </button>
 
-
         <button
             id="btnNovo"
             class="novo"
@@ -307,7 +266,6 @@ a.btn {
         >
             🗑 Gravar novamente
         </button>
-
 
         <button
             id="btnEnviar"
@@ -320,46 +278,33 @@ a.btn {
 
     </div>
 
-
     <div id="statusGravacao">
         Pronto para gravar.
     </div>
 
-
     <div id="tempo"></div>
-
 
     <audio
         id="audioPreview"
         controls
-    >
-    </audio>
-
+    ></audio>
 
     <div id="statusEnvio"></div>
 
 </div>
 
 
-
-<!-- ======================================================
-     FOTOS
-     ====================================================== -->
-
 <div class="top">
 
     <div>
 
-        <h1>
-            Documentos recebidos
-        </h1>
+        <h1>Documentos recebidos</h1>
 
         <div class="sub">
             Sequências enviadas pela ESP32-CAM
         </div>
 
     </div>
-
 
     {% if groups %}
 
@@ -368,11 +313,9 @@ a.btn {
         action="/excluir-todas"
         onsubmit="return confirm('Excluir TODAS as fotos?')"
     >
-
         <button class="all">
             Excluir tudo
         </button>
-
     </form>
 
     {% endif %}
@@ -380,11 +323,9 @@ a.btn {
 </div>
 
 
-
 {% for g in groups %}
 
 <section class="seq">
-
 
     <div class="seqhead">
 
@@ -400,51 +341,40 @@ a.btn {
 
         </div>
 
-
         <form
             method="post"
             action="/excluir-sequencia/{{ g.id }}"
             onsubmit="return confirm('Excluir esta sequência inteira?')"
         >
-
             <button class="all">
                 Excluir sequência
             </button>
-
         </form>
 
     </div>
 
 
-
     <div class="photos">
-
 
         {% for p in g.photos %}
 
         <div class="card">
 
-
             <a
                 href="/foto/{{ p.file }}"
                 target="_blank"
             >
-
                 <img
                     src="/foto/{{ p.file }}"
                     loading="lazy"
                 >
-
             </a>
-
 
             <div class="num">
                 Foto {{ p.number }}
             </div>
 
-
             <div class="actions">
-
 
                 <a
                     class="btn open"
@@ -454,19 +384,15 @@ a.btn {
                     Abrir
                 </a>
 
-
                 <form
                     method="post"
                     action="/excluir/{{ p.file }}"
                     onsubmit="return confirm('Excluir esta foto?')"
                 >
-
                     <button class="del">
                         Excluir
                     </button>
-
                 </form>
-
 
             </div>
 
@@ -474,42 +400,32 @@ a.btn {
 
         {% endfor %}
 
-
     </div>
-
 
 </section>
 
-
 {% else %}
 
-<p>
-    Nenhuma sequência recebida ainda.
-</p>
+<p>Nenhuma sequência recebida ainda.</p>
 
 {% endfor %}
 
 
-
-<!-- ======================================================
-     JAVASCRIPT DO GRAVADOR
-     ====================================================== -->
-
 <script>
 
 let mediaRecorder = null;
-
 let audioChunks = [];
-
 let audioBlob = null;
-
 let audioURL = null;
-
 let inicioGravacao = null;
-
 let timerInterval = null;
 
 
+/*
+==========================================================
+GRAVAR
+==========================================================
+*/
 
 async function iniciarGravacao() {
 
@@ -520,29 +436,20 @@ async function iniciarGravacao() {
                 audio: true
             });
 
-
         audioChunks = [];
-
         audioBlob = null;
-
 
         mediaRecorder =
             new MediaRecorder(stream);
-
 
         mediaRecorder.ondataavailable =
             function(event) {
 
                 if (event.data.size > 0) {
-
-                    audioChunks.push(
-                        event.data
-                    );
-
+                    audioChunks.push(event.data);
                 }
 
             };
-
 
         mediaRecorder.onstop =
             function() {
@@ -551,82 +458,53 @@ async function iniciarGravacao() {
                     mediaRecorder.mimeType
                     || "audio/webm";
 
-
                 audioBlob =
                     new Blob(
                         audioChunks,
-                        {
-                            type: tipo
-                        }
+                        { type: tipo }
                     );
-
 
                 if (audioURL) {
-
-                    URL.revokeObjectURL(
-                        audioURL
-                    );
-
+                    URL.revokeObjectURL(audioURL);
                 }
 
-
                 audioURL =
-                    URL.createObjectURL(
-                        audioBlob
-                    );
-
+                    URL.createObjectURL(audioBlob);
 
                 const player =
                     document.getElementById(
                         "audioPreview"
                     );
 
-
-                player.src =
-                    audioURL;
-
-
-                player.style.display =
-                    "block";
-
+                player.src = audioURL;
+                player.style.display = "block";
 
                 document.getElementById(
                     "statusGravacao"
                 ).innerText =
                     "Áudio gravado. Ouça antes de enviar.";
 
-
                 document.getElementById(
                     "btnNovo"
-                ).disabled =
-                    false;
-
+                ).disabled = false;
 
                 document.getElementById(
                     "btnEnviar"
-                ).disabled =
-                    false;
-
+                ).disabled = false;
 
                 stream
                     .getTracks()
                     .forEach(
-                        track =>
-                            track.stop()
+                        track => track.stop()
                     );
 
             };
 
-
         mediaRecorder.start();
 
-
-        inicioGravacao =
-            Date.now();
-
+        inicioGravacao = Date.now();
 
         atualizarTempo();
-
 
         timerInterval =
             setInterval(
@@ -634,36 +512,25 @@ async function iniciarGravacao() {
                 250
             );
 
-
         document.getElementById(
             "btnGravar"
-        ).disabled =
-            true;
-
+        ).disabled = true;
 
         document.getElementById(
             "btnParar"
-        ).disabled =
-            false;
-
+        ).disabled = false;
 
         document.getElementById(
             "btnNovo"
-        ).disabled =
-            true;
-
+        ).disabled = true;
 
         document.getElementById(
             "btnEnviar"
-        ).disabled =
-            true;
-
+        ).disabled = true;
 
         document.getElementById(
             "statusEnvio"
-        ).innerText =
-            "";
-
+        ).innerText = "";
 
         document.getElementById(
             "statusGravacao"
@@ -679,15 +546,10 @@ async function iniciarGravacao() {
         ).innerText =
             "Não foi possível acessar o microfone.";
 
-
-        console.error(
-            erro
-        );
+        console.error(erro);
 
     }
-
 }
-
 
 
 function atualizarTempo() {
@@ -696,26 +558,17 @@ function atualizarTempo() {
         return;
     }
 
-
     const segundos =
         Math.floor(
-            (
-                Date.now()
-                - inicioGravacao
-            )
+            (Date.now() - inicioGravacao)
             / 1000
         );
 
-
     const minutos =
-        Math.floor(
-            segundos / 60
-        );
-
+        Math.floor(segundos / 60);
 
     const resto =
         segundos % 60;
-
 
     document.getElementById(
         "tempo"
@@ -727,110 +580,74 @@ function atualizarTempo() {
 }
 
 
-
 function pararGravacao() {
 
     if (
-        mediaRecorder
-        &&
-        mediaRecorder.state
-        !== "inactive"
+        mediaRecorder &&
+        mediaRecorder.state !== "inactive"
     ) {
-
         mediaRecorder.stop();
-
     }
 
-
-    clearInterval(
-        timerInterval
-    );
-
+    clearInterval(timerInterval);
 
     document.getElementById(
         "btnParar"
-    ).disabled =
-        true;
-
-
-    document.getElementById(
-        "btnGravar"
-    ).disabled =
-        true;
+    ).disabled = true;
 
 }
 
 
+/*
+==========================================================
+GRAVAR NOVAMENTE
+==========================================================
+*/
 
 function gravarNovamente() {
 
     audioBlob = null;
-
     audioChunks = [];
-
 
     if (audioURL) {
 
-        URL.revokeObjectURL(
-            audioURL
-        );
-
+        URL.revokeObjectURL(audioURL);
         audioURL = null;
 
     }
-
 
     const player =
         document.getElementById(
             "audioPreview"
         );
 
-
     player.pause();
-
-    player.removeAttribute(
-        "src"
-    );
-
-    player.style.display =
-        "none";
-
+    player.removeAttribute("src");
+    player.style.display = "none";
 
     document.getElementById(
         "btnGravar"
-    ).disabled =
-        false;
-
+    ).disabled = false;
 
     document.getElementById(
         "btnParar"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 
     document.getElementById(
         "btnNovo"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 
     document.getElementById(
         "btnEnviar"
-    ).disabled =
-        true;
-
+    ).disabled = true;
 
     document.getElementById(
         "tempo"
-    ).innerText =
-        "";
-
+    ).innerText = "";
 
     document.getElementById(
         "statusEnvio"
-    ).innerText =
-        "";
-
+    ).innerText = "";
 
     document.getElementById(
         "statusGravacao"
@@ -840,6 +657,224 @@ function gravarNovamente() {
 }
 
 
+/*
+==========================================================
+CONVERTER PARA PCM 44.1 kHz ESTEREO 16-BIT
+==========================================================
+*/
+
+async function converterParaWav44100(blob) {
+
+    const arrayBuffer =
+        await blob.arrayBuffer();
+
+    const contexto =
+        new AudioContext();
+
+    const audioOriginal =
+        await contexto.decodeAudioData(
+            arrayBuffer.slice(0)
+        );
+
+    const duracao =
+        audioOriginal.duration;
+
+    const totalFrames =
+        Math.ceil(
+            duracao * 44100
+        );
+
+    const offline =
+        new OfflineAudioContext(
+            1,
+            totalFrames,
+            44100
+        );
+
+    const source =
+        offline.createBufferSource();
+
+    source.buffer =
+        audioOriginal;
+
+    source.connect(
+        offline.destination
+    );
+
+    source.start(0);
+
+    const renderizado =
+        await offline.startRendering();
+
+    await contexto.close();
+
+    const mono =
+        renderizado.getChannelData(0);
+
+    /*
+       WAV:
+       44 bytes de cabeçalho
+       +
+       cada frame:
+       2 bytes esquerda
+       2 bytes direita
+    */
+
+    const buffer =
+        new ArrayBuffer(
+            44 + mono.length * 4
+        );
+
+    const view =
+        new DataView(buffer);
+
+
+    function texto(offset, texto) {
+
+        for (
+            let i = 0;
+            i < texto.length;
+            i++
+        ) {
+
+            view.setUint8(
+                offset + i,
+                texto.charCodeAt(i)
+            );
+
+        }
+    }
+
+
+    texto(0, "RIFF");
+
+    view.setUint32(
+        4,
+        36 + mono.length * 4,
+        true
+    );
+
+    texto(8, "WAVE");
+    texto(12, "fmt ");
+
+    view.setUint32(
+        16,
+        16,
+        true
+    );
+
+    // PCM
+    view.setUint16(
+        20,
+        1,
+        true
+    );
+
+    // Stereo
+    view.setUint16(
+        22,
+        2,
+        true
+    );
+
+    // 44.1 kHz
+    view.setUint32(
+        24,
+        44100,
+        true
+    );
+
+    // byte rate
+    view.setUint32(
+        28,
+        44100 * 4,
+        true
+    );
+
+    // block align
+    view.setUint16(
+        32,
+        4,
+        true
+    );
+
+    // 16 bits
+    view.setUint16(
+        34,
+        16,
+        true
+    );
+
+    texto(36, "data");
+
+    view.setUint32(
+        40,
+        mono.length * 4,
+        true
+    );
+
+
+    let pos = 44;
+
+
+    for (
+        let i = 0;
+        i < mono.length;
+        i++
+    ) {
+
+        let sample =
+            Math.max(
+                -1,
+                Math.min(
+                    1,
+                    mono[i]
+                )
+            );
+
+        sample =
+            sample < 0
+            ? sample * 32768
+            : sample * 32767;
+
+        const valor =
+            Math.round(sample);
+
+        // esquerda
+        view.setInt16(
+            pos,
+            valor,
+            true
+        );
+
+        pos += 2;
+
+        // direita
+        view.setInt16(
+            pos,
+            valor,
+            true
+        );
+
+        pos += 2;
+
+    }
+
+
+    return new Blob(
+        [buffer],
+        {
+            type: "audio/wav"
+        }
+    );
+}
+
+
+/*
+==========================================================
+ENVIAR PARA ESP32
+==========================================================
+*/
 
 async function enviarAudio() {
 
@@ -847,24 +882,29 @@ async function enviarAudio() {
         return;
     }
 
-
     const botao =
         document.getElementById(
             "btnEnviar"
         );
 
-
-    botao.disabled =
-        true;
-
+    botao.disabled = true;
 
     document.getElementById(
         "statusEnvio"
     ).innerText =
-        "Enviando áudio...";
-
+        "Preparando áudio para o Bluetooth...";
 
     try {
+
+        const wav =
+            await converterParaWav44100(
+                audioBlob
+            );
+
+        document.getElementById(
+            "statusEnvio"
+        ).innerText =
+            "Enviando áudio...";
 
         const resposta =
             await fetch(
@@ -874,23 +914,17 @@ async function enviarAudio() {
                     method: "POST",
 
                     headers: {
-
                         "Content-Type":
-                            audioBlob.type
-                            || "audio/webm"
-
+                            "audio/wav"
                     },
 
-                    body:
-                        audioBlob
+                    body: wav
 
                 }
             );
 
-
         const dados =
             await resposta.json();
-
 
         if (!resposta.ok) {
 
@@ -901,17 +935,15 @@ async function enviarAudio() {
 
         }
 
-
         document.getElementById(
             "statusEnvio"
         ).innerText =
             "✅ Áudio enviado. Aguardando a ESP32.";
 
-
         document.getElementById(
             "statusGravacao"
         ).innerText =
-            "Mensagem pronta para a ESP32.";
+            "Mensagem pronta para reprodução.";
 
     }
 
@@ -920,33 +952,21 @@ async function enviarAudio() {
         document.getElementById(
             "statusEnvio"
         ).innerText =
-            "❌ Erro ao enviar o áudio.";
+            "❌ Erro ao preparar/enviar o áudio.";
 
+        botao.disabled = false;
 
-        botao.disabled =
-            false;
-
-
-        console.error(
-            erro
-        );
+        console.error(erro);
 
     }
-
 }
 
 </script>
 
-
 </body>
-
 </html>
 """
 
-
-# ==========================================================
-# FUNCAO DE SEGURANCA PARA NOMES
-# ==========================================================
 
 def safe(value):
 
@@ -957,18 +977,12 @@ def safe(value):
     )
 
 
-# ==========================================================
-# LER INFORMACOES DAS FOTOS
-# ==========================================================
-
 def parse_file(p):
 
     parts = p.stem.split("__")
 
-
     if len(parts) < 4:
         return None
-
 
     try:
 
@@ -983,38 +997,25 @@ def parse_file(p):
 
         number = 0
 
-
     return {
 
         "file": p.name,
-
         "device": parts[0],
-
         "seq": parts[1],
-
         "number": number,
-
         "stamp": parts[3],
 
     }
 
-
-# ==========================================================
-# PAGINA PRINCIPAL
-# ==========================================================
 
 @app.get("/")
 def index():
 
     grouped = defaultdict(list)
 
-
-    for p in UPLOAD_DIR.glob(
-        "*.jpg"
-    ):
+    for p in UPLOAD_DIR.glob("*.jpg"):
 
         info = parse_file(p)
-
 
         if info:
 
@@ -1025,21 +1026,17 @@ def index():
 
     groups = []
 
-
     for sequence_id, photos in grouped.items():
-
 
         photos.sort(
             key=lambda x:
                 x["number"]
         )
 
-
         stamp = max(
             x["stamp"]
             for x in photos
         )
-
 
         try:
 
@@ -1050,11 +1047,9 @@ def index():
                 tzinfo=timezone.utc
             )
 
-
             shown = dt.strftime(
                 "%d/%m/%Y - %H:%M:%S UTC"
             )
-
 
         except Exception:
 
@@ -1063,17 +1058,10 @@ def index():
 
         groups.append({
 
-            "id":
-                sequence_id,
-
-            "photos":
-                photos,
-
-            "stamp":
-                stamp,
-
-            "time":
-                shown,
+            "id": sequence_id,
+            "photos": photos,
+            "stamp": stamp,
+            "time": shown,
 
         })
 
@@ -1084,9 +1072,7 @@ def index():
         reverse=True
     )
 
-
     total = len(groups)
-
 
     for i, g in enumerate(groups):
 
@@ -1101,10 +1087,6 @@ def index():
     )
 
 
-# ==========================================================
-# TESTE DO SERVIDOR
-# ==========================================================
-
 @app.get("/health")
 def health():
 
@@ -1114,7 +1096,7 @@ def health():
 
 
 # ==========================================================
-# RECEBER FOTO DA ESP32
+# FOTO RECEBIDA DA ESP32
 # ==========================================================
 
 @app.post("/upload")
@@ -1124,7 +1106,6 @@ def upload():
         "X-Device-Token",
         ""
     )
-
 
     if token != DEVICE_TOKEN:
 
@@ -1138,20 +1119,14 @@ def upload():
         "camera001"
     )
 
-
     device = "".join(
-
         c
         for c in device
-
         if c.isalnum()
         or c in "-_"
-
     )[:40]
 
-
     if not device:
-
         device = "camera001"
 
 
@@ -1160,20 +1135,14 @@ def upload():
         "sem-sequencia"
     )
 
-
     sequence_id = "".join(
-
         c
         for c in sequence_id
-
         if c.isalnum()
         or c in "-_"
-
     )[:80]
 
-
     if not sequence_id:
-
         sequence_id = "sem-sequencia"
 
 
@@ -1191,17 +1160,7 @@ def upload():
         number = 0
 
 
-    data = None
-
-
-    if (
-        request.content_type
-        and "image/jpeg"
-        in request.content_type
-    ):
-
-        data = request.get_data()
-
+    data = request.get_data()
 
     if not data:
 
@@ -1225,42 +1184,34 @@ def upload():
 
 
     name = (
-
         f"{device}"
         f"__{sequence_id}"
         f"__photo{number:02d}"
         f"__{stamp}"
         f".jpg"
-
     )
 
 
     (
         UPLOAD_DIR
         / name
-    ).write_bytes(
-        data
-    )
+    ).write_bytes(data)
 
 
     return jsonify(
-
         ok=True,
-
         arquivo=name
-
     )
 
 
 # ==========================================================
-# RECEBER AUDIO DO NAVEGADOR
+# AUDIO PCM/WAV RECEBIDO DO NAVEGADOR
 # ==========================================================
 
 @app.post("/enviar-audio")
 def enviar_audio():
 
     data = request.get_data()
-
 
     if not data:
 
@@ -1269,34 +1220,24 @@ def enviar_audio():
         ), 400
 
 
-    # Limite de 10 MB
-
-    if len(data) > 10 * 1024 * 1024:
+    # Limite 12 MB
+    if len(data) > 12 * 1024 * 1024:
 
         return jsonify(
             error="audio muito grande"
         ), 413
 
 
-    content_type = (
-        request.content_type
-        or ""
-    )
+    # Agora aceitamos somente WAV preparado pelo navegador.
+    if (
+        len(data) < 44
+        or data[0:4] != b"RIFF"
+        or data[8:12] != b"WAVE"
+    ):
 
-
-    if "ogg" in content_type:
-
-        extensao = ".ogg"
-
-
-    elif "mp4" in content_type:
-
-        extensao = ".m4a"
-
-
-    else:
-
-        extensao = ".webm"
+        return jsonify(
+            error="audio precisa estar em WAV"
+        ), 400
 
 
     stamp = datetime.now(
@@ -1307,27 +1248,20 @@ def enviar_audio():
 
 
     nome = (
-        f"audio__{stamp}{extensao}"
+        f"audio__{stamp}.wav"
     )
 
 
     (
         AUDIO_DIR
         / nome
-    ).write_bytes(
-        data
-    )
+    ).write_bytes(data)
 
-
-    # ------------------------------------------------------
-    # ESTE E O UNICO AUDIO QUE ESTA AGUARDANDO A ESP32
-    # ------------------------------------------------------
 
     pendente = (
         AUDIO_DIR
         / "pendente.txt"
     )
-
 
     pendente.write_text(
         nome,
@@ -1336,18 +1270,14 @@ def enviar_audio():
 
 
     return jsonify(
-
         ok=True,
-
         arquivo=nome,
-
         status="aguardando_esp32"
-
     )
 
 
 # ==========================================================
-# ESP32 CONSULTA SE EXISTE AUDIO NOVO
+# ESP32 VERIFICA SE EXISTE AUDIO
 # ==========================================================
 
 @app.get("/audio-pendente")
@@ -1357,7 +1287,6 @@ def audio_pendente():
         "X-Device-Token",
         ""
     )
-
 
     if token != DEVICE_TOKEN:
 
@@ -1371,10 +1300,6 @@ def audio_pendente():
         / "pendente.txt"
     )
 
-
-    # ------------------------------------------------------
-    # NAO EXISTE AUDIO NOVO
-    # ------------------------------------------------------
 
     if not pendente.exists():
 
@@ -1394,10 +1319,6 @@ def audio_pendente():
     )
 
 
-    # ------------------------------------------------------
-    # MARCADOR EXISTE MAS ARQUIVO NAO
-    # ------------------------------------------------------
-
     if not arquivo.exists():
 
         try:
@@ -1405,29 +1326,20 @@ def audio_pendente():
         except Exception:
             pass
 
-
         return jsonify(
             pendente=False
         )
 
 
-    # ------------------------------------------------------
-    # EXISTE AUDIO NOVO
-    # ------------------------------------------------------
-
     return jsonify(
-
         pendente=True,
-
         arquivo=nome,
-
         url=f"/baixar-audio/{nome}"
-
     )
 
 
 # ==========================================================
-# ESP32 BAIXA O AUDIO
+# ESP32 BAIXA AUDIO
 # ==========================================================
 
 @app.get("/baixar-audio/<name>")
@@ -1438,27 +1350,19 @@ def baixar_audio(name):
         ""
     )
 
-
     if token != DEVICE_TOKEN:
-
         abort(401)
 
-
     if not safe(name):
-
         abort(404)
-
 
     arquivo = (
         AUDIO_DIR
         / name
     )
 
-
     if not arquivo.is_file():
-
         abort(404)
-
 
     return send_from_directory(
         AUDIO_DIR,
@@ -1467,7 +1371,7 @@ def baixar_audio(name):
 
 
 # ==========================================================
-# ESP32 CONFIRMA QUE RECEBEU O AUDIO
+# ESP32 CONFIRMA DEPOIS DE REPRODUZIR
 # ==========================================================
 
 @app.post("/confirmar-audio")
@@ -1477,7 +1381,6 @@ def confirmar_audio():
         "X-Device-Token",
         ""
     )
-
 
     if token != DEVICE_TOKEN:
 
@@ -1510,18 +1413,11 @@ def confirmar_audio():
     )
 
 
-    # ------------------------------------------------------
-    # JA NAO EXISTE NADA PENDENTE
-    # ------------------------------------------------------
-
     if not pendente.exists():
 
         return jsonify(
-
             ok=True,
-
             status="nenhum_pendente"
-
         )
 
 
@@ -1532,70 +1428,38 @@ def confirmar_audio():
     )
 
 
-    # ------------------------------------------------------
-    # GARANTE QUE A CONFIRMACAO E DO MESMO AUDIO
-    # ------------------------------------------------------
-
     if nome_recebido != nome_pendente:
 
         return jsonify(
-
             ok=False,
-
             error="arquivo diferente do pendente"
-
         ), 409
 
 
-    # ------------------------------------------------------
-    # REMOVE O STATUS PENDENTE
-    #
-    # O ARQUIVO DE AUDIO PODE CONTINUAR SALVO.
-    # MAS NAO SERA OFERECIDO NOVAMENTE PARA A ESP32.
-    # ------------------------------------------------------
-
     try:
-
         pendente.unlink()
 
     except FileNotFoundError:
-
         pass
 
 
     return jsonify(
-
         ok=True,
-
-        status="entregue",
-
+        status="reproduzido",
         arquivo=nome_recebido
-
     )
 
-
-# ==========================================================
-# ABRIR FOTO
-# ==========================================================
 
 @app.get("/foto/<path:name>")
 def foto(name):
 
     if not safe(name):
-
         abort(404)
 
-
-    arquivo = (
-        UPLOAD_DIR
-        / name
-    )
-
+    arquivo = UPLOAD_DIR / name
 
     if not arquivo.is_file():
-
         abort(404)
-
 
     return send_from_directory(
         UPLOAD_DIR,
@@ -1603,47 +1467,27 @@ def foto(name):
     )
 
 
-# ==========================================================
-# EXCLUIR UMA FOTO
-# ==========================================================
-
 @app.post("/excluir/<name>")
 def excluir(name):
 
     if not safe(name):
-
         abort(400)
 
-
-    arquivo = (
-        UPLOAD_DIR
-        / name
-    )
-
+    arquivo = UPLOAD_DIR / name
 
     if arquivo.is_file():
-
         arquivo.unlink()
 
-
     return redirect(
-        url_for(
-            "index"
-        )
+        url_for("index")
     )
 
-
-# ==========================================================
-# EXCLUIR UMA SEQUENCIA
-# ==========================================================
 
 @app.post("/excluir-sequencia/<sequence_id>")
 def excluir_sequencia(sequence_id):
 
     if not safe(sequence_id):
-
         abort(400)
-
 
     for p in UPLOAD_DIR.glob(
         "*.jpg"
@@ -1651,50 +1495,30 @@ def excluir_sequencia(sequence_id):
 
         info = parse_file(p)
 
-
         if (
             info
             and
-            info["seq"]
-            == sequence_id
+            info["seq"] == sequence_id
         ):
-
             p.unlink()
 
-
     return redirect(
-        url_for(
-            "index"
-        )
+        url_for("index")
     )
 
-
-# ==========================================================
-# EXCLUIR TODAS AS FOTOS
-# ==========================================================
 
 @app.post("/excluir-todas")
 def excluir_todas():
 
-    for p in UPLOAD_DIR.glob(
-        "*"
-    ):
+    for p in UPLOAD_DIR.glob("*"):
 
         if p.is_file():
-
             p.unlink()
 
-
     return redirect(
-        url_for(
-            "index"
-        )
+        url_for("index")
     )
 
-
-# ==========================================================
-# EXECUCAO LOCAL / RENDER
-# ==========================================================
 
 if __name__ == "__main__":
 
@@ -1705,11 +1529,7 @@ if __name__ == "__main__":
         )
     )
 
-
     app.run(
-
         host="0.0.0.0",
-
         port=port
-
     )
