@@ -178,6 +178,13 @@ button {
     color: white;
 }
 
+#tirarFotos {
+    background: #1f6feb;
+    color: white;
+    width: 100%;
+    margin-top: 12px;
+}
+
 button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -251,6 +258,17 @@ audio {
                 Grave um áudio para começar.
             </div>
 
+        </div>
+
+        <div class="audio-card" style="margin-top:20px;">
+            <h2>📸 Câmera ESP32</h2>
+            <button id="tirarFotos">📸 TIRAR 5 FOTOS</button>
+            <div id="mensagemFoto" class="detalhe">
+                Use o botão para solicitar uma sequência de 5 fotos.
+            </div>
+            <div class="detalhe">
+                <a href="/fotos" style="color:#58a6ff;">Ver fotos recebidas</a>
+            </div>
         </div>
 
     </div>
@@ -520,6 +538,54 @@ async function verificarConfirmacao() {
 
     }
 }
+
+
+// ======================================================
+// COMANDO REMOTO - 5 FOTOS
+// ======================================================
+
+const botaoTirarFotos = document.getElementById("tirarFotos");
+const mensagemFoto = document.getElementById("mensagemFoto");
+
+botaoTirarFotos.onclick = async function() {
+
+    botaoTirarFotos.disabled = true;
+    mensagemFoto.textContent = "📡 Enviando comando para a ESP32...";
+
+    try {
+
+        const resposta = await fetch(
+            "/comando-foto",
+            {
+                method: "POST",
+                cache: "no-store"
+            }
+        );
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            mensagemFoto.textContent =
+                "❌ " + (dados.erro || "Falha ao enviar comando.");
+            botaoTirarFotos.disabled = false;
+            return;
+        }
+
+        mensagemFoto.textContent =
+            "✅ Comando enviado. A ESP32 vai tirar 5 fotos.";
+
+        setTimeout(function() {
+            botaoTirarFotos.disabled = false;
+        }, 2500);
+
+    } catch (erro) {
+
+        mensagemFoto.textContent =
+            "❌ Erro de comunicação com o servidor.";
+
+        botaoTirarFotos.disabled = false;
+    }
+};
 
 </script>
 
@@ -813,6 +879,57 @@ def audio_status(audio_id):
     return jsonify({
         "recebido": dados["recebido"]
     })
+
+
+# =========================================================
+# COMANDO REMOTO PARA TIRAR 5 FOTOS
+# =========================================================
+
+@app.route("/comando-foto", methods=["POST"])
+def comando_foto():
+
+    global esp_ws
+
+    if not esp_esta_online():
+        return jsonify({
+            "ok": False,
+            "erro": "ESP32 esta desconectada."
+        }), 503
+
+    with lock:
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({
+            "ok": False,
+            "erro": "WebSocket da ESP32 nao esta disponivel."
+        }), 503
+
+    try:
+        socket_atual.send("TIRAR_FOTOS")
+
+        print(
+            "SERVIDOR -> ESP32: TIRAR_FOTOS",
+            flush=True
+        )
+
+        return jsonify({
+            "ok": True,
+            "comando": "TIRAR_FOTOS"
+        })
+
+    except Exception as erro:
+
+        print(
+            "ERRO AO ENVIAR COMANDO DE FOTO:",
+            erro,
+            flush=True
+        )
+
+        return jsonify({
+            "ok": False,
+            "erro": "Falha ao enviar comando para a ESP32."
+        }), 500
 
 
 # =========================================================
