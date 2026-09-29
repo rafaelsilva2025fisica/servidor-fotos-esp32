@@ -4,6 +4,8 @@ import threading
 import time
 import os
 import uuid
+import subprocess
+import imageio_ffmpeg
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -14,6 +16,8 @@ sock = Sock(app)
 
 AUDIO_DIR = "/tmp/audios"
 os.makedirs(AUDIO_DIR, exist_ok=True)
+
+FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 lock = threading.Lock()
 
@@ -60,13 +64,11 @@ def esp_esta_online():
 def pagina():
     return render_template_string("""
 <!DOCTYPE html>
-
 <html lang="pt-BR">
 
 <head>
 
 <meta charset="UTF-8">
-
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>ESP32 Rafael V1</title>
@@ -271,7 +273,7 @@ const mensagem = document.getElementById("mensagem");
 
 
 // ======================================================
-// STATUS DA ESP32
+// STATUS ESP32
 // ======================================================
 
 async function atualizarESP() {
@@ -280,9 +282,7 @@ async function atualizarESP() {
 
         const resposta = await fetch(
             "/status?t=" + Date.now(),
-            {
-                cache: "no-store"
-            }
+            { cache: "no-store" }
         );
 
         const dados = await resposta.json();
@@ -320,7 +320,7 @@ setInterval(atualizarESP, 2000);
 
 
 // ======================================================
-// GRAVAR ÁUDIO
+// GRAVAR
 // ======================================================
 
 botaoGravar.onclick = async function() {
@@ -387,7 +387,7 @@ botaoGravar.onclick = async function() {
 
 
 // ======================================================
-// PARAR GRAVAÇÃO
+// PARAR
 // ======================================================
 
 botaoParar.onclick = function() {
@@ -396,9 +396,7 @@ botaoParar.onclick = function() {
         mediaRecorder &&
         mediaRecorder.state !== "inactive"
     ) {
-
         mediaRecorder.stop();
-
     }
 
     botaoGravar.disabled = false;
@@ -408,7 +406,7 @@ botaoParar.onclick = function() {
 
 
 // ======================================================
-// ENVIAR ÁUDIO
+// ENVIAR
 // ======================================================
 
 botaoEnviar.onclick = async function() {
@@ -420,7 +418,7 @@ botaoEnviar.onclick = async function() {
     botaoEnviar.disabled = true;
 
     mensagem.textContent =
-        "📤 Enviando áudio para o servidor...";
+        "📤 Enviando e convertendo áudio...";
 
     const formulario = new FormData();
 
@@ -456,7 +454,7 @@ botaoEnviar.onclick = async function() {
         audioAtualId = dados.audio_id;
 
         mensagem.textContent =
-            "📡 ESP32 avisada. Aguardando ela baixar o áudio...";
+            "📡 WAV pronto. ESP32 avisada. Aguardando download...";
 
         verificarConfirmacao();
 
@@ -472,7 +470,7 @@ botaoEnviar.onclick = async function() {
 
 
 // ======================================================
-// AGUARDAR CONFIRMAÇÃO DA ESP32
+// CONFIRMAÇÃO
 // ======================================================
 
 async function verificarConfirmacao() {
@@ -498,7 +496,7 @@ async function verificarConfirmacao() {
         if (dados.recebido === true) {
 
             mensagem.textContent =
-                "✅ ÁUDIO RECEBIDO PELA ESP32";
+                "✅ ÁUDIO WAV RECEBIDO PELA ESP32";
 
             botaoEnviar.disabled = false;
 
@@ -506,7 +504,7 @@ async function verificarConfirmacao() {
         }
 
         mensagem.textContent =
-            "📡 ESP32 avisada. Aguardando o download do áudio...";
+            "📡 Aguardando a ESP32 receber o WAV...";
 
         setTimeout(
             verificarConfirmacao,
@@ -526,13 +524,12 @@ async function verificarConfirmacao() {
 </script>
 
 </body>
-
 </html>
 """)
 
 
 # =========================================================
-# STATUS DA ESP32
+# STATUS
 # =========================================================
 
 @app.route("/status")
@@ -552,7 +549,7 @@ def status():
 
 
 # =========================================================
-# RECEBER ÁUDIO DO NAVEGADOR
+# RECEBER WEBM E CONVERTER PARA WAV
 # =========================================================
 
 @app.route("/enviar-audio", methods=["POST"])
@@ -576,17 +573,143 @@ def enviar_audio():
 
     audio_id = uuid.uuid4().hex[:12]
 
-    caminho = os.path.join(
+    caminho_webm = os.path.join(
         AUDIO_DIR,
         audio_id + ".webm"
     )
 
-    arquivo.save(caminho)
+    caminho_wav = os.path.join(
+        AUDIO_DIR,
+        audio_id + ".wav"
+    )
+
+    arquivo.save(caminho_webm)
+
+    print(
+        ">>> WEBM RECEBIDO:",
+        caminho_webm,
+        flush=True
+    )
+
+    # =====================================================
+    # WEBM -> WAV PCM
+    #
+    # 44100 Hz
+    # estéreo
+    # PCM signed 16-bit little endian
+    # =====================================================
+
+    try:
+
+        comando_ffmpeg = [
+            FFMPEG,
+            "-y",
+            "-i",
+            caminho_webm,
+            "-vn",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            caminho_wav
+        ]
+
+        resultado = subprocess.run(
+            comando_ffmpeg,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30
+        )
+
+        if resultado.returncode != 0:
+
+            erro_ffmpeg = resultado.stderr.decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+            print(
+                ">>> ERRO FFMPEG <<<",
+                flush=True
+            )
+
+            print(
+                erro_ffmpeg,
+                flush=True
+            )
+
+            return jsonify({
+                "erro": "Falha ao converter o áudio para WAV."
+            }), 500
+
+    except Exception as erro:
+
+        print(
+            "ERRO NA CONVERSAO:",
+            erro,
+            flush=True
+        )
+
+        return jsonify({
+            "erro": "Erro durante conversão do áudio."
+        }), 500
+
+    # WebM não é mais necessário.
+
+    try:
+
+        os.remove(caminho_webm)
+
+    except Exception:
+        pass
+
+    if not os.path.exists(caminho_wav):
+
+        return jsonify({
+            "erro": "O WAV não foi criado."
+        }), 500
+
+    tamanho_wav = os.path.getsize(caminho_wav)
+
+    print(
+        "================================",
+        flush=True
+    )
+
+    print(
+        ">>> WAV CRIADO COM SUCESSO <<<",
+        flush=True
+    )
+
+    print(
+        "ID:",
+        audio_id,
+        flush=True
+    )
+
+    print(
+        "TAMANHO:",
+        tamanho_wav,
+        "bytes",
+        flush=True
+    )
+
+    print(
+        "FORMATO: PCM 16-bit / 44100 Hz / stereo",
+        flush=True
+    )
+
+    print(
+        "================================",
+        flush=True
+    )
 
     with lock:
 
         audios[audio_id] = {
-            "arquivo": caminho,
+            "arquivo": caminho_wav,
             "recebido": False,
             "criado": time.time()
         }
@@ -600,9 +723,6 @@ def enviar_audio():
         }), 503
 
     try:
-
-        # O servidor avisa a ESP.
-        # A ESP NÃO fica procurando áudio.
 
         comando = "NOVO_AUDIO|" + audio_id
 
@@ -628,14 +748,16 @@ def enviar_audio():
 
     return jsonify({
         "ok": True,
-        "audio_id": audio_id
+        "audio_id": audio_id,
+        "formato": "wav_pcm_s16le",
+        "sample_rate": 44100,
+        "canais": 2,
+        "tamanho": tamanho_wav
     })
 
 
 # =========================================================
-# DOWNLOAD DO ÁUDIO
-#
-# A ESP só acessa esta rota DEPOIS de receber NOVO_AUDIO.
+# DOWNLOAD DO WAV
 # =========================================================
 
 @app.route("/audio/<audio_id>", methods=["GET"])
@@ -659,20 +781,21 @@ def baixar_audio(audio_id):
         }), 404
 
     print(
-        ">>> ESP32 INICIOU DOWNLOAD DO ÁUDIO:",
+        ">>> ESP32 INICIOU DOWNLOAD DO WAV:",
         audio_id,
         flush=True
     )
 
     return send_file(
         caminho,
-        mimetype="audio/webm",
-        as_attachment=False
+        mimetype="audio/wav",
+        as_attachment=False,
+        download_name="audio.wav"
     )
 
 
 # =========================================================
-# STATUS DE UM ÁUDIO
+# STATUS DO ÁUDIO
 # =========================================================
 
 @app.route("/audio-status/<audio_id>")
@@ -693,7 +816,7 @@ def audio_status(audio_id):
 
 
 # =========================================================
-# WEBSOCKET DA ESP32
+# WEBSOCKET
 # =========================================================
 
 @sock.route("/ws-esp32")
@@ -740,27 +863,19 @@ def websocket_esp32(ws):
                 flush=True
             )
 
-            # =============================================
             # PING
-            # =============================================
 
             if mensagem == "PING":
 
                 ws.send("PONG")
 
-            # =============================================
-            # ESP32 PRONTA
-            # =============================================
+            # PRONTO
 
             elif mensagem == "PRONTO":
 
                 ws.send("PRONTO_OK")
 
-            # =============================================
-            # ESP CONFIRMOU DOWNLOAD
-            #
-            # AUDIO_RECEBIDO|ID
-            # =============================================
+            # AUDIO RECEBIDO
 
             elif mensagem.startswith("AUDIO_RECEBIDO|"):
 
@@ -777,7 +892,7 @@ def websocket_esp32(ws):
                             audios[audio_id]["recebido"] = True
 
                     print(
-                        ">>> ÁUDIO CONFIRMADO PELA ESP32:",
+                        ">>> WAV CONFIRMADO PELA ESP32:",
                         audio_id,
                         flush=True
                     )
