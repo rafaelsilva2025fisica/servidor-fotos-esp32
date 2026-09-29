@@ -1,121 +1,96 @@
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from collections import defaultdict
 
-    if not pendente.exists():
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    send_from_directory,
+    render_template_string,
+    abort,
+    redirect,
+    url_for,
+)
+from flask_sock import Sock
 
-        return jsonify(
-            ok=True,
-            status="nenhum_pendente"
-        )
+app = Flask(__name__)
+sock = Sock(app)
+esp_websocket = None
 
+UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "uploads"))
+AUDIO_DIR = Path(os.environ.get("AUDIO_DIR", "audios"))
 
-    nome_pendente = (
-        pendente.read_text(
-            encoding="utf-8"
-        ).strip()
-    )
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-
-    if nome_recebido != nome_pendente:
-
-        return jsonify(
-            ok=False,
-            error="arquivo diferente do pendente"
-        ), 409
-
-
-    try:
-        pendente.unlink()
-
-    except FileNotFoundError:
-        pass
-
-
-    return jsonify(
-        ok=True,
-        status="reproduzido",
-        arquivo=nome_recebido
-    )
+DEVICE_TOKEN = os.environ.get(
+    "DEVICE_TOKEN",
+    "troque-este-token"
+)
 
 
-@app.get("/foto/<path:name>")
-def foto(name):
+HTML = """
+<!doctype html>
+<html lang="pt-BR">
 
-    if not safe(name):
-        abort(404)
+<head>
 
-    arquivo = UPLOAD_DIR / name
+<meta charset="utf-8">
 
-    if not arquivo.is_file():
-        abort(404)
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+>
 
-    return send_from_directory(
-        UPLOAD_DIR,
-        name
-    )
+<title>Documentos recebidos</title>
 
+<style>
 
-@app.post("/excluir/<name>")
-def excluir(name):
+body {
+    font-family: Arial, sans-serif;
+    max-width: 1250px;
+    margin: 28px auto;
+    padding: 0 15px;
+    background: #111;
+    color: #eee;
+}
 
-    if not safe(name):
-        abort(400)
+h1 {
+    margin-bottom: 4px;
+}
 
-    arquivo = UPLOAD_DIR / name
+.sub {
+    color: #aaa;
+    margin-bottom: 22px;
+}
 
-    if arquivo.is_file():
-        arquivo.unlink()
+.audio-box {
+    background: #1d1d1d;
+    border: 2px solid #444;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 30px;
+}
 
-    return redirect(
-        url_for("index")
-    )
+.audio-box h2 {
+    margin-top: 0;
+}
 
+.audio-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+}
 
-@app.post("/excluir-sequencia/<sequence_id>")
-def excluir_sequencia(sequence_id):
+button {
+    border: 0;
+    border-radius: 7px;
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: 14px;
+}
 
-    if not safe(sequence_id):
-        abort(400)
-
-    for p in UPLOAD_DIR.glob(
-        "*.jpg"
-    ):
-
-        info = parse_file(p)
-
-        if (
-            info
-            and
-            info["seq"] == sequence_id
-        ):
-            p.unlink()
-
-    return redirect(
-        url_for("index")
-    )
-
-
-@app.post("/excluir-todas")
-def excluir_todas():
-
-    for p in UPLOAD_DIR.glob("*"):
-
-        if p.is_file():
-            p.unlink()
-
-    return redirect(
-        url_for("index")
-    )
-
-
-if __name__ == "__main__":
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            "10000"
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+button:disabled {
