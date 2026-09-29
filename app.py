@@ -13,12 +13,8 @@ from flask import (
     redirect,
     url_for,
 )
-from flask_sock import Sock
 
 app = Flask(__name__)
-sock = Sock(app)
-esp_websocket = None
-audio_status = {"estado": "aguardando", "arquivo": "", "esp_online": False}
 
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "uploads"))
 AUDIO_DIR = Path(os.environ.get("AUDIO_DIR", "audios"))
@@ -942,14 +938,12 @@ async function enviarAudio() {
         document.getElementById(
             "statusEnvio"
         ).innerText =
-            "📤 Áudio salvo. Enviando ordem para a ESP32...";
-
-        acompanharStatusAudio(dados.arquivo);
+            "✅ Áudio enviado. Aguardando a ESP32.";
 
         document.getElementById(
             "statusGravacao"
         ).innerText =
-            "Comando enviado ao dispositivo.";
+            "Mensagem pronta para reprodução.";
 
     }
 
@@ -965,41 +959,6 @@ async function enviarAudio() {
         console.error(erro);
 
     }
-}
-
-
-async function acompanharStatusAudio(arquivo) {
-    const status = document.getElementById("statusEnvio");
-    const botao = document.getElementById("btnEnviar");
-
-    for (let i = 0; i < 180; i++) {
-        try {
-            const r = await fetch("/status-audio?arquivo=" + encodeURIComponent(arquivo), {cache: "no-store"});
-            const d = await r.json();
-
-            if (d.estado === "esp_offline") {
-                status.innerText = "⚠️ Áudio salvo, mas a ESP32 está offline.";
-            } else if (d.estado === "ordem_enviada") {
-                status.innerText = "📡 Ordem enviada à ESP32. Baixando áudio...";
-            } else if (d.estado === "recebido") {
-                status.innerText = "✅ Áudio recebido pela ESP32. Reproduzindo...";
-            } else if (d.estado === "reproduzido") {
-                status.innerText = "✅ Áudio reproduzido no BT 950.";
-                botao.disabled = false;
-                return;
-            } else if (d.estado === "erro") {
-                status.innerText = "❌ Falha no processamento do áudio pela ESP32.";
-                botao.disabled = false;
-                return;
-            }
-        } catch (e) {
-            console.error(e);
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-
-    status.innerText = "⚠️ Sem confirmação final da ESP32.";
-    botao.disabled = false;
 }
 
 </script>
@@ -1246,110 +1205,75 @@ def upload():
 
 
 # ==========================================================
-# WEBSOCKET ESP32
-# ==========================================================
-
-@sock.route("/ws-esp32")
-def ws_esp32(ws):
-    global esp_websocket, audio_status
-
-    token = request.args.get("token", "")
-    if token != DEVICE_TOKEN:
-        print("WEBSOCKET: TOKEN INVALIDO", flush=True)
-        try:
-            ws.close()
-        except Exception:
-            pass
-        return
-
-    esp_websocket = ws
-    audio_status["esp_online"] = True
-    print("\n================================", flush=True)
-    print(">>> ESP32 CONECTADA / MODO ESCRAVO <<<", flush=True)
-    print("================================", flush=True)
-
-    try:
-        while True:
-            mensagem = ws.receive()
-            if mensagem is None:
-                break
-
-            print("ESP32 WS:", mensagem, flush=True)
-
-            if mensagem == "PING":
-                ws.send("PONG")
-            elif mensagem == "PRONTO":
-                audio_status["esp_online"] = True
-            elif mensagem.startswith("AUDIO_RECEBIDO|"):
-                nome = mensagem.split("|", 1)[1].strip()
-                audio_status.update(estado="recebido", arquivo=nome, esp_online=True)
-                print(">>> ESP32 CONFIRMOU RECEBIMENTO:", nome, flush=True)
-            elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
-                nome = mensagem.split("|", 1)[1].strip()
-                audio_status.update(estado="reproduzido", arquivo=nome, esp_online=True)
-                print(">>> ESP32 CONFIRMOU REPRODUCAO:", nome, flush=True)
-
-    except Exception as erro:
-        print("WEBSOCKET ENCERRADO:", erro, flush=True)
-    finally:
-        if esp_websocket is ws:
-            esp_websocket = None
-        audio_status["esp_online"] = False
-        print(">>> ESP32 DESCONECTADA <<<", flush=True)
-
-
-@app.get("/status-audio")
-def status_audio():
-    nome = request.args.get("arquivo", "")
-    if nome and audio_status.get("arquivo") not in ("", nome):
-        return jsonify(estado="aguardando", arquivo=nome, esp_online=audio_status.get("esp_online", False))
-    return jsonify(audio_status)
-
-
-# ==========================================================
 # AUDIO PCM/WAV RECEBIDO DO NAVEGADOR
 # ==========================================================
 
 @app.post("/enviar-audio")
 def enviar_audio():
-    global esp_websocket, audio_status
 
     data = request.get_data()
+
     if not data:
-        return jsonify(error="audio vazio"), 400
+
+        return jsonify(
+            error="audio vazio"
+        ), 400
+
+
+    # Limite 12 MB
     if len(data) > 12 * 1024 * 1024:
-        return jsonify(error="audio muito grande"), 413
-    if len(data) < 44 or data[0:4] != b"RIFF" or data[8:12] != b"WAVE":
-        return jsonify(error="audio precisa estar em WAV"), 400
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-    nome = f"audio__{stamp}.wav"
-    (AUDIO_DIR / nome).write_bytes(data)
+        return jsonify(
+            error="audio muito grande"
+        ), 413
 
-    # Mantido apenas como contingencia; a ESP NAO consulta esta rota.
-    (AUDIO_DIR / "pendente.txt").write_text(nome, encoding="utf-8")
 
-    print("\n==============================", flush=True)
-    print(">>> NOVO AUDIO SALVO <<<", flush=True)
-    print("Arquivo:", nome, flush=True)
-    print("Bytes:", len(data), flush=True)
+    # Agora aceitamos somente WAV preparado pelo navegador.
+    if (
+        len(data) < 44
+        or data[0:4] != b"RIFF"
+        or data[8:12] != b"WAVE"
+    ):
 
-    if esp_websocket is None:
-        audio_status.update(estado="esp_offline", arquivo=nome, esp_online=False)
-        print("ESP32 OFFLINE - COMANDO NAO ENVIADO", flush=True)
-        return jsonify(ok=True, arquivo=nome, estado="esp_offline", esp_online=False)
+        return jsonify(
+            error="audio precisa estar em WAV"
+        ), 400
 
-    try:
-        comando = f"BAIXAR_AUDIO|{nome}"
-        esp_websocket.send(comando)
-        audio_status.update(estado="ordem_enviada", arquivo=nome, esp_online=True)
-        print(">>> COMANDO ENVIADO:", comando, flush=True)
-        return jsonify(ok=True, arquivo=nome, estado="ordem_enviada", esp_online=True)
-    except Exception as erro:
-        print("ERRO AO ENVIAR COMANDO:", erro, flush=True)
-        esp_websocket = None
-        audio_status.update(estado="esp_offline", arquivo=nome, esp_online=False)
-        return jsonify(ok=True, arquivo=nome, estado="esp_offline", esp_online=False)
+
+    stamp = datetime.now(
+        timezone.utc
+    ).strftime(
+        "%Y%m%d-%H%M%S-%f"
+    )
+
+
+    nome = (
+        f"audio__{stamp}.wav"
+    )
+
+
+    (
+        AUDIO_DIR
+        / nome
+    ).write_bytes(data)
+
+
+    pendente = (
+        AUDIO_DIR
+        / "pendente.txt"
+    )
+
+    pendente.write_text(
+        nome,
+        encoding="utf-8"
+    )
+
+
+    return jsonify(
+        ok=True,
+        arquivo=nome,
+        status="aguardando_esp32"
+    )
 
 
 # ==========================================================
@@ -1518,12 +1442,6 @@ def confirmar_audio():
     except FileNotFoundError:
         pass
 
-
-    audio_status.update(
-        estado="reproduzido",
-        arquivo=nome_recebido,
-        esp_online=(esp_websocket is not None),
-    )
 
     return jsonify(
         ok=True,
