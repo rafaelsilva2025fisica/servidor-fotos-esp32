@@ -1,56 +1,52 @@
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, jsonify, render_template_string
 from flask_sock import Sock
-
 import threading
 import time
-
 
 app = Flask(__name__)
 sock = Sock(app)
 
-
 # =========================================================
-# ULTIMO SINAL RECEBIDO DA ESP32
+# ESTADO DA ESP32
 # =========================================================
 
 lock = threading.Lock()
 
-ultimo_sinal_esp = 0
+ultimo_sinal_esp = 0.0
 
 
-def registrar_esp():
-
+def registrar_sinal_esp():
     global ultimo_sinal_esp
 
     with lock:
-
         ultimo_sinal_esp = time.time()
 
 
-def esp_online():
-
+def segundos_desde_ultimo_sinal():
     with lock:
-
         ultimo = ultimo_sinal_esp
 
+    if ultimo <= 0:
+        return None
 
-    # Considera conectada se recebemos
-    # sinal nos últimos 30 segundos.
+    return time.time() - ultimo
 
-    return (
-        ultimo > 0
-        and
-        time.time() - ultimo < 30
-    )
+
+def esp_esta_online():
+    segundos = segundos_desde_ultimo_sinal()
+
+    if segundos is None:
+        return False
+
+    return segundos < 30
 
 
 # =========================================================
-# PAGINA
+# PAGINA PRINCIPAL
 # =========================================================
 
 @app.route("/")
 def pagina():
-
     return render_template_string("""
 <!DOCTYPE html>
 
@@ -62,113 +58,86 @@ def pagina():
 
 <meta
     name="viewport"
-    content="width=device-width, initial-scale=1"
+    content="width=device-width, initial-scale=1.0"
 >
 
 <title>ESP32 Rafael V1</title>
 
-
 <style>
 
+* {
+    box-sizing: border-box;
+}
+
 body {
-
     margin: 0;
-
+    min-height: 100vh;
     background: #0d1117;
-
-    color: white;
-
-    font-family: Arial, sans-serif;
-
+    color: #e6edf3;
+    font-family: Arial, Helvetica, sans-serif;
     display: flex;
-
     justify-content: center;
-
     padding: 40px 20px;
 }
 
+.container {
+    width: 100%;
+    max-width: 700px;
+}
 
 .card {
-
-    width: 100%;
-
-    max-width: 650px;
-
     background: #161b22;
-
     border: 1px solid #30363d;
-
     border-radius: 16px;
-
     padding: 30px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .30);
 }
-
 
 h1 {
-
     margin-top: 0;
+    margin-bottom: 8px;
 }
 
+.subtitulo {
+    color: #8b949e;
+    margin-bottom: 30px;
+}
 
-.status {
-
-    margin-top: 30px;
-
-    padding: 30px;
-
-    text-align: center;
-
+.status-card {
     background: #0d1117;
-
     border: 1px solid #30363d;
-
     border-radius: 12px;
+    padding: 30px;
+    text-align: center;
 }
 
-
-#esp {
-
-    font-size: 26px;
-
+#status {
+    font-size: 27px;
     font-weight: bold;
 }
 
-
 .online {
-
     color: #3fb950;
 }
 
-
 .offline {
-
     color: #f85149;
 }
 
-
 #detalhe {
-
-    margin-top: 10px;
-
     color: #8b949e;
+    margin-top: 12px;
 }
 
-
 .log {
-
     margin-top: 25px;
-
-    padding: 15px;
-
     background: #010409;
-
     border: 1px solid #30363d;
-
     border-radius: 10px;
-
+    padding: 15px;
+    min-height: 100px;
     font-family: monospace;
-
-    min-height: 80px;
+    line-height: 1.5;
 }
 
 </style>
@@ -178,203 +147,193 @@ h1 {
 
 <body>
 
+<div class="container">
 
-<div class="card">
+    <div class="card">
 
+        <h1>ESP32 Rafael V1</h1>
 
-<h1>
-ESP32 Rafael V1
-</h1>
+        <div class="subtitulo">
+            Servidor ESP32 em tempo real
+        </div>
 
+        <div class="status-card">
 
-<p>
-Servidor ESP32 em tempo real
-</p>
+            <div
+                id="status"
+                class="offline"
+            >
+                🔴 ESP32 DESCONECTADA
+            </div>
 
+            <div id="detalhe">
+                Aguardando sinal da ESP32...
+            </div>
 
-<div class="status">
+        </div>
 
+        <div
+            class="log"
+            id="log"
+        >
+            Aguardando ESP32...
+        </div>
 
-<div
-    id="esp"
-    class="offline"
->
-
-🔴 ESP32 DESCONECTADA
-
-</div>
-
-
-<div id="detalhe">
-
-Aguardando sinal...
-
-</div>
-
-
-</div>
-
-
-<div
-    class="log"
-    id="log"
->
-
-Aguardando ESP32...
+    </div>
 
 </div>
-
-
-</div>
-
 
 
 <script>
 
+let estadoAnterior = null;
 
-let anterior = null;
 
+// ======================================================
+// LOG DA PAGINA
+// ======================================================
 
-function log(texto) {
+function adicionarLog(texto) {
 
-    const elemento =
+    const log =
         document.getElementById("log");
 
-
     const hora =
-        new Date()
-        .toLocaleTimeString();
+        new Date().toLocaleTimeString();
 
-
-    elemento.innerHTML =
-
+    log.innerHTML =
         "[" +
         hora +
         "] " +
         texto +
         "<br>" +
-        elemento.innerHTML;
+        log.innerHTML;
 }
 
 
+// ======================================================
+// CONSULTAR ESTADO DO SERVIDOR
+// ======================================================
 
-async function atualizar() {
-
+async function atualizarStatus() {
 
     try {
 
-
         const resposta =
             await fetch(
-                "/status?t=" +
-                Date.now(),
+                "/status?t=" + Date.now(),
                 {
                     cache: "no-store"
                 }
             );
 
-
         const dados =
             await resposta.json();
 
-
-        const esp =
-            document.getElementById("esp");
-
+        const status =
+            document.getElementById("status");
 
         const detalhe =
             document.getElementById("detalhe");
 
 
+        // ==================================================
+        // ESP ONLINE
+        // ==================================================
 
-        if (
-            dados.esp32_online
-        ) {
+        if (dados.esp32_online === true) {
 
-
-            esp.textContent =
+            status.textContent =
                 "🟢 ESP32 CONECTADA";
 
-
-            esp.className =
+            status.className =
                 "online";
 
 
-            detalhe.textContent =
-                "ESP32 respondendo normalmente";
-
-
             if (
-                anterior !== true
+                dados.segundos_desde_sinal !== null
             ) {
 
-                log(
+                detalhe.textContent =
+                    "Último sinal há " +
+                    dados.segundos_desde_sinal +
+                    " s";
+
+            } else {
+
+                detalhe.textContent =
+                    "ESP32 respondendo";
+
+            }
+
+
+            if (estadoAnterior !== true) {
+
+                adicionarLog(
                     "ESP32 ficou ONLINE."
                 );
 
-                anterior = true;
+                estadoAnterior = true;
             }
 
         }
 
+        // ==================================================
+        // ESP OFFLINE
+        // ==================================================
 
         else {
 
-
-            esp.textContent =
+            status.textContent =
                 "🔴 ESP32 DESCONECTADA";
 
-
-            esp.className =
+            status.className =
                 "offline";
 
-
             detalhe.textContent =
-                "Aguardando ESP32";
+                "Aguardando sinal da ESP32...";
 
 
-            if (
-                anterior !== false
-            ) {
+            if (estadoAnterior !== false) {
 
-                log(
+                adicionarLog(
                     "ESP32 ficou OFFLINE."
                 );
 
-                anterior = false;
+                estadoAnterior = false;
             }
 
         }
 
-
     }
-
 
     catch (erro) {
 
-
         document
-        .getElementById("detalhe")
-        .textContent =
-
-        "Erro de comunicação com servidor";
+            .getElementById("detalhe")
+            .textContent =
+            "Erro ao consultar o servidor";
 
     }
-
 }
 
 
-atualizar();
+// Primeira consulta
+atualizarStatus();
 
+
+// Atualização automática da página.
+//
+// IMPORTANTE:
+// É o navegador que consulta /status.
+// A ESP NÃO faz GET periódico.
 
 setInterval(
-    atualizar,
+    atualizarStatus,
     1000
 );
 
-
 </script>
-
 
 </body>
 
@@ -383,41 +342,33 @@ setInterval(
 
 
 # =========================================================
-# STATUS
+# STATUS DA ESP32
 # =========================================================
 
 @app.route("/status")
 def status():
 
-    return jsonify({
+    segundos = segundos_desde_ultimo_sinal()
 
-        "esp32_online":
-            esp_online(),
+    if segundos is None:
+        segundos_formatados = None
+    else:
+        segundos_formatados = round(segundos, 1)
 
-        "segundos_desde_sinal":
-            (
-                round(
-                    time.time()
-                    -
-                    ultimo_sinal_esp,
-                    1
-                )
-
-                if ultimo_sinal_esp > 0
-
-                else None
-            )
-
-    })
+    return jsonify(
+        {
+            "esp32_online": esp_esta_online(),
+            "segundos_desde_sinal": segundos_formatados
+        }
+    )
 
 
 # =========================================================
-# WEBSOCKET ESP32
+# WEBSOCKET DA ESP32
 # =========================================================
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
-
 
     print(
         "================================",
@@ -434,48 +385,31 @@ def websocket_esp32(ws):
         flush=True
     )
 
+    # A própria conexão já conta como primeiro sinal.
+    registrar_sinal_esp()
 
-    # A conexão já conta como sinal.
-
-    registrar_esp()
-
-
-    # Confirma para a ESP.
-
-    ws.send(
-        "SERVIDOR_OK"
-    )
-
+    # Confirma para a ESP32.
+    ws.send("SERVIDOR_OK")
 
     try:
 
-
         while True:
 
-
-            mensagem =
-                ws.receive()
-
+            # ESTA LINHA ERA UMA DAS QUE ESTAVA
+            # COM SINTAXE ERRADA NA VERSAO ANTERIOR.
+            mensagem = ws.receive()
 
             if mensagem is None:
-
                 break
 
-
-            # Qualquer mensagem atualiza
-            # o último sinal.
-
-            registrar_esp()
-
+            # Qualquer mensagem recebida significa
+            # que a ESP está viva.
+            registrar_sinal_esp()
 
             print(
-
-                "ESP32 ->",
-
+                "ESP32 -> SERVIDOR:",
                 mensagem,
-
                 flush=True
-
             )
 
 
@@ -485,8 +419,11 @@ def websocket_esp32(ws):
 
             if mensagem == "PING":
 
-                ws.send(
-                    "PONG"
+                ws.send("PONG")
+
+                print(
+                    "SERVIDOR -> ESP32: PONG",
+                    flush=True
                 )
 
 
@@ -496,47 +433,76 @@ def websocket_esp32(ws):
 
             elif mensagem == "PRONTO":
 
-                ws.send(
-                    "PRONTO_OK"
+                ws.send("PRONTO_OK")
+
+                print(
+                    ">>> ESP32 PRONTA <<<",
+                    flush=True
+                )
+
+
+            # =================================================
+            # FUTURO: AUDIO
+            # =================================================
+
+            elif mensagem.startswith(
+                "AUDIO_RECEBIDO|"
+            ):
+
+                print(
+                    ">>> AUDIO RECEBIDO PELA ESP32 <<<",
+                    flush=True
+                )
+
+
+            elif mensagem.startswith(
+                "AUDIO_REPRODUZIDO|"
+            ):
+
+                print(
+                    ">>> AUDIO REPRODUZIDO <<<",
+                    flush=True
+                )
+
+
+            # =================================================
+            # FUTURO: FOTO
+            # =================================================
+
+            elif mensagem.startswith(
+                "FOTO_RECEBIDA|"
+            ):
+
+                print(
+                    ">>> FOTO RECEBIDA <<<",
+                    flush=True
                 )
 
 
     except Exception as erro:
 
-
         print(
-
             "ERRO WEBSOCKET:",
-
             erro,
-
             flush=True
-
         )
 
 
     finally:
 
-
         print(
-
-            ">>> CONEXAO WEBSOCKET ENCERRADA <<<",
-
+            ">>> WEBSOCKET DA ESP32 ENCERRADO <<<",
             flush=True
-
         )
 
 
 # =========================================================
-# LOCAL
+# EXECUCAO LOCAL
 # =========================================================
 
 if __name__ == "__main__":
 
     app.run(
-
         host="0.0.0.0",
-
         port=5000
-
     )
