@@ -1,67 +1,72 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, jsonify
 from flask_sock import Sock
 import threading
+import time
 
 app = Flask(__name__)
 sock = Sock(app)
 
+# =========================================================
+# ESTADO DA ESP32
+# =========================================================
+
 lock = threading.Lock()
 
-esp_ws = None
-site_clients = set()
+esp_conectada = False
+ultimo_sinal_esp = 0
 
 
-# =========================================================
-# ENVIAR EVENTO PARA TODAS AS PAGINAS ABERTAS
-# =========================================================
-
-def enviar_site(mensagem):
-
-    mortos = []
+def definir_esp_online():
+    global esp_conectada
+    global ultimo_sinal_esp
 
     with lock:
-        clientes = list(site_clients)
+        esp_conectada = True
+        ultimo_sinal_esp = time.time()
 
-    for ws in clientes:
-        try:
-            ws.send(mensagem)
-        except Exception:
-            mortos.append(ws)
 
-    if mortos:
-        with lock:
-            for ws in mortos:
-                site_clients.discard(ws)
+def definir_esp_offline():
+    global esp_conectada
+
+    with lock:
+        esp_conectada = False
+
+
+def estado_esp():
+    with lock:
+        return esp_conectada
 
 
 # =========================================================
 # PAGINA
 # =========================================================
 
-@app.get("/")
-def index():
+@app.route("/")
+def pagina():
 
     return render_template_string("""
-<!doctype html>
+<!DOCTYPE html>
 
 <html lang="pt-BR">
 
 <head>
 
-<meta charset="utf-8">
+<meta charset="UTF-8">
 
 <meta
     name="viewport"
-    content="width=device-width, initial-scale=1"
+    content="width=device-width, initial-scale=1.0"
 >
 
 <title>ESP32 Rafael V1</title>
+
 
 <style>
 
 * {
     box-sizing: border-box;
 }
+
 
 body {
 
@@ -71,7 +76,7 @@ body {
 
     background: #0d1117;
 
-    color: #e6edf3;
+    color: white;
 
     font-family:
         Arial,
@@ -82,7 +87,9 @@ body {
 
     justify-content: center;
 
-    padding: 35px 18px;
+    align-items: flex-start;
+
+    padding: 40px 20px;
 }
 
 
@@ -90,7 +97,7 @@ body {
 
     width: 100%;
 
-    max-width: 720px;
+    max-width: 700px;
 }
 
 
@@ -98,15 +105,19 @@ body {
 
     background: #161b22;
 
-    border: 1px solid #30363d;
+    border:
+        1px solid
+        #30363d;
 
-    border-radius: 16px;
+    border-radius:
+        16px;
 
-    padding: 28px;
+    padding:
+        30px;
 
     box-shadow:
-        0 10px 30px
-        rgba(0,0,0,.25);
+        0 10px 35px
+        rgba(0,0,0,.30);
 }
 
 
@@ -115,78 +126,112 @@ h1 {
     margin-top: 0;
 
     margin-bottom: 8px;
+
+    font-size: 30px;
 }
 
 
-.sub {
+.subtitulo {
 
     color: #8b949e;
 
-    margin-bottom: 28px;
+    margin-bottom: 30px;
 }
 
 
-.status-box {
+.status-card {
 
-    padding: 22px;
+    background:
+        #0d1117;
 
-    border-radius: 12px;
+    border:
+        1px solid
+        #30363d;
 
-    text-align: center;
+    border-radius:
+        12px;
 
-    border: 1px solid #30363d;
+    padding:
+        25px;
 
-    background: #0d1117;
+    text-align:
+        center;
 }
 
 
-#espStatus {
+#status {
 
-    font-size: 24px;
+    font-size:
+        26px;
 
-    font-weight: bold;
+    font-weight:
+        bold;
 }
 
 
 .online {
 
-    color: #3fb950;
+    color:
+        #3fb950;
 }
 
 
 .offline {
 
-    color: #f85149;
+    color:
+        #f85149;
 }
 
 
-#canal {
+.info {
 
-    margin-top: 10px;
+    margin-top:
+        12px;
 
-    color: #8b949e;
+    color:
+        #8b949e;
 
-    font-size: 14px;
+    font-size:
+        14px;
+}
+
+
+.separador {
+
+    height:
+        1px;
+
+    background:
+        #30363d;
+
+    margin:
+        25px 0;
 }
 
 
 .log {
 
-    margin-top: 22px;
+    background:
+        #010409;
 
-    padding: 16px;
+    border:
+        1px solid
+        #30363d;
 
-    background: #010409;
+    border-radius:
+        10px;
 
-    border: 1px solid #30363d;
+    padding:
+        15px;
 
-    border-radius: 10px;
+    min-height:
+        100px;
 
-    min-height: 100px;
+    font-family:
+        monospace;
 
-    font-family: monospace;
-
-    white-space: pre-wrap;
+    color:
+        #c9d1d9;
 }
 
 </style>
@@ -208,18 +253,18 @@ ESP32 Rafael V1
 </h1>
 
 
-<div class="sub">
+<div class="subtitulo">
 
-Comunicação em tempo real com o ESP32.
+Servidor de comunicação ESP32
 
 </div>
 
 
-<div class="status-box">
+<div class="status-card">
 
 
 <div
-    id="espStatus"
+    id="status"
     class="offline"
 >
 
@@ -228,14 +273,25 @@ Comunicação em tempo real com o ESP32.
 </div>
 
 
-<div id="canal">
+<div
+    class="info"
+    id="info"
+>
 
-Conectando página ao servidor...
+Verificando ESP32...
 
 </div>
 
 
 </div>
+
+
+<div class="separador"></div>
+
+
+<h3>
+Eventos
+</h3>
 
 
 <div
@@ -243,7 +299,7 @@ Conectando página ao servidor...
     id="log"
 >
 
-Aguardando eventos...
+Página iniciada.
 
 </div>
 
@@ -258,18 +314,16 @@ Aguardando eventos...
 <script>
 
 
-let ws = null;
-
-let timerReconexao = null;
+let estadoAnterior = null;
 
 
-// =====================================================
+// ======================================================
 // LOG
-// =====================================================
+// ======================================================
 
-function log(texto) {
+function adicionarLog(texto) {
 
-    const elemento =
+    const log =
         document.getElementById(
             "log"
         );
@@ -280,199 +334,164 @@ function log(texto) {
         .toLocaleTimeString();
 
 
-    elemento.textContent =
+    log.innerHTML =
 
         "[" +
         hora +
         "] " +
         texto +
-        "\\n" +
-        elemento.textContent;
+        "<br>" +
+        log.innerHTML;
 }
 
 
 
-// =====================================================
-// ESP ONLINE
-// =====================================================
+// ======================================================
+// ATUALIZAR STATUS
+// ======================================================
 
-function mostrarOnline() {
+async function verificarESP() {
 
-    const elemento =
-        document.getElementById(
-            "espStatus"
-        );
 
+    try {
 
-    elemento.textContent =
-        "🟢 ESP32 CONECTADA";
 
-
-    elemento.className =
-        "online";
-}
-
-
-
-// =====================================================
-// ESP OFFLINE
-// =====================================================
-
-function mostrarOffline() {
-
-    const elemento =
-        document.getElementById(
-            "espStatus"
-        );
-
-
-    elemento.textContent =
-        "🔴 ESP32 DESCONECTADA";
-
-
-    elemento.className =
-        "offline";
-}
-
-
-
-// =====================================================
-// WEBSOCKET DA PAGINA
-// =====================================================
-
-function conectarSite() {
-
-
-    const protocolo =
-
-        location.protocol === "https:"
-
-        ? "wss://"
-
-        : "ws://";
-
-
-    ws = new WebSocket(
-
-        protocolo +
-
-        location.host +
-
-        "/ws-site"
-
-    );
-
-
-
-    // -------------------------------------------------
-    // PAGINA CONECTOU AO SERVIDOR
-    // -------------------------------------------------
-
-    ws.onopen = () => {
-
-
-        document
-        .getElementById(
-            "canal"
-        )
-        .textContent =
-
-        "Página conectada ao servidor em tempo real";
-
-
-        log(
-            "Canal da página conectado."
-        );
-
-    };
-
-
-
-    // -------------------------------------------------
-    // SERVIDOR ENVIOU EVENTO
-    // -------------------------------------------------
-
-    ws.onmessage = (evento) => {
-
-
-        const mensagem =
-            evento.data;
-
-
-        log(
-            "Servidor: " +
-            mensagem
-        );
-
-
-        if (
-            mensagem ===
-            "ESP_ONLINE"
-        ) {
-
-            mostrarOnline();
-        }
-
-
-        if (
-            mensagem ===
-            "ESP_OFFLINE"
-        ) {
-
-            mostrarOffline();
-        }
-
-    };
-
-
-
-    // -------------------------------------------------
-    // WEBSOCKET DA PAGINA CAIU
-    // -------------------------------------------------
-
-    ws.onclose = () => {
-
-
-        document
-        .getElementById(
-            "canal"
-        )
-        .textContent =
-
-        "Canal da página desconectado. Reconectando...";
-
-
-        clearTimeout(
-            timerReconexao
-        );
-
-
-        timerReconexao =
-            setTimeout(
-                conectarSite,
-                2000
+        const resposta =
+            await fetch(
+                "/status?t=" +
+                Date.now(),
+                {
+                    cache:
+                        "no-store"
+                }
             );
 
-    };
+
+        const dados =
+            await resposta.json();
+
+
+        const status =
+            document.getElementById(
+                "status"
+            );
+
+
+        const info =
+            document.getElementById(
+                "info"
+            );
 
 
 
-    ws.onerror = () => {
+        // ==================================================
+        // ONLINE
+        // ==================================================
 
-        try {
+        if (
+            dados.esp32_online
+        ) {
 
-            ws.close();
 
-        } catch (erro) {
+            status.textContent =
+                "🟢 ESP32 CONECTADA";
+
+
+            status.className =
+                "online";
+
+
+            info.textContent =
+                "Canal WebSocket ativo";
+
+
+            if (
+                estadoAnterior !== true
+            ) {
+
+
+                adicionarLog(
+                    "ESP32 conectada."
+                );
+
+
+                estadoAnterior =
+                    true;
+            }
 
         }
 
-    };
+
+        // ==================================================
+        // OFFLINE
+        // ==================================================
+
+        else {
+
+
+            status.textContent =
+                "🔴 ESP32 DESCONECTADA";
+
+
+            status.className =
+                "offline";
+
+
+            info.textContent =
+                "Aguardando ESP32";
+
+
+            if (
+                estadoAnterior !== false
+            ) {
+
+
+                adicionarLog(
+                    "ESP32 desconectada."
+                );
+
+
+                estadoAnterior =
+                    false;
+            }
+
+        }
+
+
+    }
+
+
+    catch (erro) {
+
+
+        document
+        .getElementById(
+            "info"
+        )
+        .textContent =
+
+        "Servidor temporariamente indisponível";
+
+    }
 
 }
 
 
-conectarSite();
+// Primeira leitura
+
+verificarESP();
+
+
+// Atualização automática.
+//
+// IMPORTANTE:
+// quem consulta aqui é o NAVEGADOR.
+// A ESP32 continua sem fazer GET periódico.
+
+setInterval(
+    verificarESP,
+    1000
+);
 
 
 </script>
@@ -485,13 +504,26 @@ conectarSite();
 
 
 # =========================================================
+# STATUS PARA A PAGINA
+# =========================================================
+
+@app.route("/status")
+def status():
+
+    return jsonify({
+
+        "esp32_online":
+            estado_esp()
+
+    })
+
+
+# =========================================================
 # WEBSOCKET DA ESP32
 # =========================================================
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
-
-    global esp_ws
 
 
     print(
@@ -518,39 +550,28 @@ def websocket_esp32(ws):
     )
 
 
-    # -----------------------------------------------------
-    # GUARDAR CONEXAO
-    # -----------------------------------------------------
+    # =====================================================
+    # ONLINE
+    # =====================================================
 
-    with lock:
-
-        esp_ws = ws
-
-
-    # -----------------------------------------------------
-    # AVISAR PAGINA
-    # -----------------------------------------------------
-
-    enviar_site(
-        "ESP_ONLINE"
-    )
+    definir_esp_online()
 
 
     try:
 
 
-        # -------------------------------------------------
-        # CONFIRMAR PARA ESP32
-        # -------------------------------------------------
+        # =================================================
+        # CONFIRMACAO PARA ESP32
+        # =================================================
 
         ws.send(
             "SERVIDOR_OK"
         )
 
 
-        # -------------------------------------------------
-        # ESPERAR MENSAGENS
-        # -------------------------------------------------
+        # =================================================
+        # MANTER CONEXAO
+        # =================================================
 
         while True:
 
@@ -562,6 +583,12 @@ def websocket_esp32(ws):
             if mensagem is None:
 
                 break
+
+
+            # Qualquer mensagem recebida prova
+            # que a ESP continua viva.
+
+            definir_esp_online()
 
 
             print(
@@ -575,53 +602,65 @@ def websocket_esp32(ws):
             )
 
 
-            # ---------------------------------------------
-            # ESP DISSE QUE ESTA PRONTA
-            # ---------------------------------------------
+            # =============================================
+            # ESP PRONTA
+            # =============================================
 
             if mensagem == "PRONTO":
 
-                enviar_site(
-                    "ESP_ONLINE"
+                print(
+
+                    ">>> ESP32 PRONTA <<<",
+
+                    flush=True
+
                 )
 
 
-            # ---------------------------------------------
-            # FUTURO: AUDIO RECEBIDO
-            # ---------------------------------------------
+            # =============================================
+            # FUTURO AUDIO
+            # =============================================
 
             elif mensagem.startswith(
                 "AUDIO_RECEBIDO|"
             ):
 
-                enviar_site(
-                    mensagem
+                print(
+
+                    ">>> AUDIO RECEBIDO PELA ESP <<<",
+
+                    flush=True
+
                 )
 
-
-            # ---------------------------------------------
-            # FUTURO: AUDIO TOCADO
-            # ---------------------------------------------
 
             elif mensagem.startswith(
                 "AUDIO_REPRODUZIDO|"
             ):
 
-                enviar_site(
-                    mensagem
+                print(
+
+                    ">>> AUDIO REPRODUZIDO <<<",
+
+                    flush=True
+
                 )
 
 
-            # ---------------------------------------------
-            # FUTURO: FOTO
-            # ---------------------------------------------
+            # =============================================
+            # FUTURO FOTO
+            # =============================================
 
             elif mensagem.startswith(
                 "FOTO_RECEBIDA|"
             ):
 
-                enviar_site(
-                    mensagem
+                print(
+
+                    ">>> FOTO RECEBIDA <<<",
+
+                    flush=True
+
                 )
 
 
@@ -630,7 +669,7 @@ def websocket_esp32(ws):
 
         print(
 
-            "ERRO WEBSOCKET ESP32:",
+            "ERRO WEBSOCKET:",
 
             erro,
 
@@ -642,140 +681,16 @@ def websocket_esp32(ws):
     finally:
 
 
-        # -------------------------------------------------
-        # REMOVER ESP
-        # -------------------------------------------------
+        # =================================================
+        # OFFLINE
+        # =================================================
 
-        with lock:
-
-            if esp_ws is ws:
-
-                esp_ws = None
+        definir_esp_offline()
 
 
         print(
 
             ">>> ESP32 DESCONECTADA <<<",
-
-            flush=True
-
-        )
-
-
-        # -------------------------------------------------
-        # AVISAR SITE
-        # -------------------------------------------------
-
-        enviar_site(
-            "ESP_OFFLINE"
-        )
-
-
-
-# =========================================================
-# WEBSOCKET DO SITE
-# =========================================================
-
-@sock.route("/ws-site")
-def websocket_site(ws):
-
-
-    print(
-
-        ">>> PAGINA CONECTADA AO WEBSOCKET <<<",
-
-        flush=True
-
-    )
-
-
-    # -----------------------------------------------------
-    # REGISTRAR PAGINA
-    # -----------------------------------------------------
-
-    with lock:
-
-        site_clients.add(
-            ws
-        )
-
-
-        online_agora =
-
-            esp_ws is not None
-
-
-    try:
-
-
-        # -------------------------------------------------
-        # INFORMAR ESTADO ATUAL IMEDIATAMENTE
-        #
-        # Isso resolve justamente o problema:
-        # abriu a pagina depois da ESP conectar?
-        # Ela recebe o estado correto mesmo assim.
-        # -------------------------------------------------
-
-        if online_agora:
-
-            ws.send(
-                "ESP_ONLINE"
-            )
-
-        else:
-
-            ws.send(
-                "ESP_OFFLINE"
-            )
-
-
-        # -------------------------------------------------
-        # MANTER PAGINA CONECTADA
-        # -------------------------------------------------
-
-        while True:
-
-
-            mensagem =
-                ws.receive()
-
-
-            if mensagem is None:
-
-                break
-
-
-    except Exception as erro:
-
-
-        print(
-
-            "WEBSOCKET SITE ENCERRADO:",
-
-            erro,
-
-            flush=True
-
-        )
-
-
-    finally:
-
-
-        # -------------------------------------------------
-        # REMOVER PAGINA
-        # -------------------------------------------------
-
-        with lock:
-
-            site_clients.discard(
-                ws
-            )
-
-
-        print(
-
-            ">>> PAGINA DESCONECTADA DO WEBSOCKET <<<",
 
             flush=True
 
