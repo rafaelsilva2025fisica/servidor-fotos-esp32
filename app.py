@@ -1,127 +1,125 @@
-        caminho = foto["arquivo"]
 
-    if not os.path.exists(caminho):
-        return jsonify({
-            "erro": "Arquivo da foto não existe."
-        }), 404
+</style>
 
-    return send_file(
-        caminho,
-        mimetype="image/jpeg",
-        as_attachment=False
-    )
+</head>
 
+<body>
 
-# =========================================================
-# WEBSOCKET
-# =========================================================
+<div class="container">
 
-@sock.route("/ws-esp32")
-def websocket_esp32(ws):
+    <a class="voltar" href="/">
+        ← Voltar para o áudio
+    </a>
 
-    global esp_ws
+    <h1>📸 Fotos da ESP32</h1>
 
-    print(
-        "================================",
-        flush=True
-    )
+    <div class="subtitulo">
+        Sequências recebidas pelo servidor
+    </div>
+"""
 
-    print(
-        ">>> ESP32 WEBSOCKET CONECTADA <<<",
-        flush=True
-    )
+    if not dados_sequencias:
 
-    print(
-        "================================",
-        flush=True
-    )
+        html += """
+    <div class="vazio">
+        Nenhuma foto recebida ainda.
+    </div>
+"""
 
-    registrar_sinal_esp()
+    else:
 
-    with lock:
-        esp_ws = ws
+        for sequencia in dados_sequencias:
 
-    try:
-
-        ws.send("SERVIDOR_OK")
-
-        while True:
-
-            mensagem = ws.receive()
-
-            if mensagem is None:
-                break
-
-            registrar_sinal_esp()
-
-            print(
-                "ESP32 -> SERVIDOR:",
-                mensagem,
-                flush=True
+            html += (
+                '<div class="sequencia">'
+                '<h2>Sequência #'
+                + str(sequencia["numero"])
+                + '</h2>'
+                '<div class="inicio">'
+                'Iniciada em '
+                + sequencia["inicio"]
+                + ' • '
+                + str(len(sequencia["fotos"]))
+                + '/5 fotos recebidas'
+                '</div>'
+                '<div class="grade">'
             )
 
-            # PING
+            for foto in sequencia["fotos"]:
 
-            if mensagem == "PING":
+                html += (
+                    '<div class="foto">'
+                    '<img src="'
+                    + foto["url"]
+                    + '" alt="Foto '
+                    + str(foto["numero"])
+                    + '">'
+                    '<div class="info">'
+                    '<strong>Foto '
+                    + str(foto["numero"])
+                    + '/5</strong>'
+                    '<div class="horario">'
+                    'Recebida: '
+                    + foto["horario"]
+                    + '</div>'
+                    '</div>'
+                    '</div>'
+                )
 
-                ws.send("PONG")
+            html += """
+                </div>
+            </div>
+"""
 
-            # PRONTO
+    html += """
+</div>
 
-            elif mensagem == "PRONTO":
+<script>
 
-                ws.send("PRONTO_OK")
+// Atualiza automaticamente para as fotos irem
+// aparecendo conforme chegam.
+setTimeout(function() {
+    window.location.reload();
+}, 2000);
 
-            # AUDIO RECEBIDO
+</script>
 
-            elif mensagem.startswith("AUDIO_RECEBIDO|"):
+</body>
+</html>
+"""
 
-                partes = mensagem.split("|", 1)
-
-                if len(partes) == 2:
-
-                    audio_id = partes[1]
-
-                    with lock:
-
-                        if audio_id in audios:
-
-                            audios[audio_id]["recebido"] = True
-
-                    print(
-                        ">>> WAV CONFIRMADO PELA ESP32:",
-                        audio_id,
-                        flush=True
-                    )
-
-    except Exception as erro:
-
-        print(
-            "ERRO WEBSOCKET:",
-            erro,
-            flush=True
-        )
-
-    finally:
-
-        with lock:
-
-            if esp_ws is ws:
-                esp_ws = None
-
-        print(
-            ">>> WEBSOCKET DA ESP32 ENCERRADO <<<",
-            flush=True
-        )
+    return html
 
 
 # =========================================================
-# EXECUÇÃO LOCAL
+# STATUS DAS FOTOS EM JSON
 # =========================================================
 
-if __name__ == "__main__":
+@app.route("/fotos-status")
+def status_fotos():
 
-    app.run(
-        host="0.0.0.0",
-        port=5000
-    )
+    with lock_fotos:
+
+        resultado = []
+
+        for numero_sequencia in sorted(
+            sequencias_fotos.keys()
+        ):
+
+            sequencia = sequencias_fotos[
+                numero_sequencia
+            ]
+
+            resultado.append({
+                "sequencia": numero_sequencia,
+                "inicio": sequencia["inicio"],
+                "quantidade":
+                    len(sequencia["fotos"]),
+                "completa":
+                    len(sequencia["fotos"]) >= 5
+            })
+
+    return jsonify({
+        "ok": True,
+        "sequencias": resultado
+    })
