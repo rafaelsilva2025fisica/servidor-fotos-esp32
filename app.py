@@ -28,6 +28,8 @@ ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
 
+fotos_recebidas = []
+
 foto_status = {
     "pedido_recebido": False,
     "salva_sd": False,
@@ -208,6 +210,19 @@ audio {
     line-height: 1.4;
 }
 
+
+.foto-link {
+    display: inline-block;
+    margin-top: 14px;
+    color: #58a6ff;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.foto-link:hover {
+    text-decoration: underline;
+}
+
 </style>
 
 </head>
@@ -249,6 +264,10 @@ audio {
             <div id="fotoMensagem" style="margin-top:20px;padding:15px;border-radius:8px;background:#161b22;min-height:52px;line-height:1.4;">
                 Aguardando pedido de foto.
             </div>
+
+            <a class="foto-link" href="/fotos" target="_blank" rel="noopener noreferrer">
+                🖼️ Ver fotos recebidas
+            </a>
 
         </div>
 
@@ -407,11 +426,15 @@ async function verificarFoto() {
         }
 
         if (dados.recebida_servidor === true) {
+            const linkFoto = dados.foto_id
+                ? "/foto/" + dados.foto_id
+                : "/foto-atual?t=" + Date.now();
+
             fotoMensagem.innerHTML =
                 "✅ FOTO NOVA RECEBIDA E CONFIRMADA PELO SERVIDOR: "
                 + dados.tamanho
                 + " bytes. "
-                + '<a href="/foto-atual?t=' + Date.now() + '" target="_blank" rel="noopener noreferrer">Abrir foto</a>';
+                + '<a href="' + linkFoto + '" target="_blank" rel="noopener noreferrer">Abrir foto</a>';
             botaoTirarFoto.disabled = false;
             return;
         }
@@ -945,8 +968,9 @@ def receber_foto():
             "erro": "Foto vazia."
         }), 400
 
-    # Um único arquivo atual no servidor para este teste.
-    caminho = os.path.join(FOTO_DIR, "foto_atual.jpg")
+    foto_id = uuid.uuid4().hex[:12]
+    nome = foto_id + ".jpg"
+    caminho = os.path.join(FOTO_DIR, nome)
     temporario = caminho + ".tmp"
 
     try:
@@ -968,23 +992,40 @@ def receber_foto():
 
         os.replace(temporario, caminho)
 
+        registro = {
+            "id": foto_id,
+            "nome": nome,
+            "caminho": caminho,
+            "tamanho": tamanho_salvo,
+            "recebida_em": time.time()
+        }
+
         with lock:
+            fotos_recebidas.insert(0, registro)
+
+            # Mantém a lista em memória limitada.
+            if len(fotos_recebidas) > 100:
+                del fotos_recebidas[100:]
+
             foto_status["salva_sd"] = True
             foto_status["tamanho"] = tamanho_salvo
             foto_status["erro"] = None
             foto_status["atualizado"] = time.time()
             foto_status["recebida_servidor"] = True
+            foto_status["foto_id"] = foto_id
 
         print(
             ">>> FOTO RECEBIDA E CONFIRMADA PELO SERVIDOR:",
+            foto_id,
             tamanho_salvo,
             "bytes <<<",
             flush=True
         )
 
-        # Só responde 200 DEPOIS de gravar e conferir.
+        # HTTP 200 somente depois de salvar e conferir.
         return jsonify({
             "ok": True,
+            "foto_id": foto_id,
             "tamanho": tamanho_salvo
         }), 200
 
@@ -1005,18 +1046,123 @@ def receber_foto():
 @app.route("/foto-atual")
 def foto_atual():
 
-    caminho = os.path.join(FOTO_DIR, "foto_atual.jpg")
+    with lock:
+        registro = fotos_recebidas[0] if fotos_recebidas else None
 
-    if not os.path.exists(caminho):
+    if registro is None or not os.path.exists(registro["caminho"]):
         return jsonify({
             "erro": "Nenhuma foto recebida."
         }), 404
 
     return send_file(
-        caminho,
+        registro["caminho"],
         mimetype="image/jpeg",
         as_attachment=False
     )
+
+
+@app.route("/foto/<foto_id>")
+def abrir_foto(foto_id):
+
+    with lock:
+        registro = next(
+            (f for f in fotos_recebidas if f["id"] == foto_id),
+            None
+        )
+
+    if registro is None or not os.path.exists(registro["caminho"]):
+        return jsonify({
+            "erro": "Foto não encontrada."
+        }), 404
+
+    return send_file(
+        registro["caminho"],
+        mimetype="image/jpeg",
+        as_attachment=False
+    )
+
+
+@app.route("/fotos")
+def galeria_fotos():
+
+    with lock:
+        lista = list(fotos_recebidas)
+
+    itens = ""
+
+    for foto in lista:
+        tamanho_kb = round(foto["tamanho"] / 1024, 1)
+
+        itens += f"""
+        <a class="foto" href="/foto/{foto['id']}" target="_blank" rel="noopener noreferrer">
+            <img src="/foto/{foto['id']}" loading="lazy">
+            <div>{tamanho_kb} KB</div>
+        </a>
+        """
+
+    if not itens:
+        itens = '<p class="vazio">Nenhuma foto recebida ainda.</p>'
+
+    return render_template_string(f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fotos recebidas</title>
+        <style>
+            body {{
+                margin: 0;
+                padding: 24px;
+                background: #0d1117;
+                color: #e6edf3;
+                font-family: Arial, Helvetica, sans-serif;
+            }}
+
+            h1 {{
+                margin-top: 0;
+            }}
+
+            .grade {{
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 14px;
+            }}
+
+            .foto {{
+                display: block;
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+                padding: 8px;
+                color: #8b949e;
+                text-decoration: none;
+                font-size: 12px;
+            }}
+
+            .foto img {{
+                width: 100%;
+                height: 120px;
+                object-fit: cover;
+                display: block;
+                border-radius: 7px;
+                margin-bottom: 7px;
+            }}
+
+            .vazio {{
+                color: #8b949e;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>📷 Fotos recebidas</h1>
+        <p>As mais novas aparecem primeiro.</p>
+        <div class="grade">
+            {itens}
+        </div>
+    </body>
+    </html>
+    """)
 
 
 @app.route("/pedir-foto", methods=["POST"])
