@@ -511,18 +511,29 @@ async function verificarConfirmacao() {
 
         const dados = await resposta.json();
 
-        if (dados.recebido === true) {
+        if (dados.reproduzido === true) {
 
             mensagem.textContent =
-                "✅ ÁUDIO WAV RECEBIDO PELA ESP32";
+                "✅ ÁUDIO REPRODUZIDO NO BLUETOOTH"
+                + (dados.reproduzido_em
+                    ? " • " + dados.reproduzido_em
+                    : "");
 
             botaoEnviar.disabled = false;
 
             return;
         }
 
-        mensagem.textContent =
-            "📡 Aguardando a ESP32 receber o WAV...";
+        if (dados.recebido === true) {
+
+            mensagem.textContent =
+                "🎧 WAV RECEBIDO. Aguardando reprodução no Bluetooth...";
+
+        } else {
+
+            mensagem.textContent =
+                "📡 Aguardando a ESP32 receber o WAV...";
+        }
 
         setTimeout(
             verificarConfirmacao,
@@ -777,6 +788,8 @@ def enviar_audio():
         audios[audio_id] = {
             "arquivo": caminho_wav,
             "recebido": False,
+            "reproduzido": False,
+            "reproduzido_em": None,
             "criado": time.time()
         }
 
@@ -877,7 +890,9 @@ def audio_status(audio_id):
         })
 
     return jsonify({
-        "recebido": dados["recebido"]
+        "recebido": dados["recebido"],
+        "reproduzido": dados.get("reproduzido", False),
+        "reproduzido_em": dados.get("reproduzido_em")
     })
 
 
@@ -1011,6 +1026,31 @@ def websocket_esp32(ws):
                     print(
                         ">>> WAV CONFIRMADO PELA ESP32:",
                         audio_id,
+                        flush=True
+                    )
+
+            # AUDIO REPRODUZIDO NO BLUETOOTH
+
+            elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
+
+                partes = mensagem.split("|", 1)
+
+                if len(partes) == 2:
+
+                    audio_id = partes[1]
+                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                    with lock:
+
+                        if audio_id in audios:
+                            audios[audio_id]["reproduzido"] = True
+                            audios[audio_id]["reproduzido_em"] = horario
+
+                    print(
+                        ">>> AUDIO REPRODUZIDO NO BLUETOOTH:",
+                        audio_id,
+                        "|",
+                        horario,
                         flush=True
                     )
 
@@ -1266,7 +1306,7 @@ def pagina_fotos():
     partes.append(".info{color:#8b949e;margin-bottom:15px;}")
     partes.append(".grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;}")
     partes.append(".foto{background:#0d1117;border:1px solid #30363d;border-radius:10px;overflow:hidden;}")
-    partes.append(".foto img{width:100%;display:block;}")
+    partes.append(".foto img{width:100%;display:block;cursor:zoom-in;}")
     partes.append(".texto{padding:11px;line-height:1.5;}")
     partes.append(".hora{color:#8b949e;font-size:14px;}")
     partes.append(".vazio{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;color:#8b949e;}")
@@ -1276,7 +1316,7 @@ def pagina_fotos():
     partes.append("<body>")
     partes.append("<div class='container'>")
     partes.append("<h1>Fotos da ESP32</h1>")
-    partes.append("<div class='info'>Atualizacao automatica a cada 2 segundos.</div>")
+    partes.append("<div class='info'>Atualizacao automatica a cada 2 segundos. Clique em uma foto para abrir grande em nova aba.</div>")
 
     with lock_fotos:
 
@@ -1330,11 +1370,15 @@ def pagina_fotos():
                     partes.append("<div class='foto'>")
 
                     partes.append(
-                        "<img src='"
+                        "<a href='"
+                        + url
+                        + "' target='_blank' rel='noopener noreferrer' title='Abrir foto grande em nova aba'>"
+                        + "<img src='"
                         + url
                         + "' alt='Foto "
                         + str(numero_foto)
                         + "'>"
+                        + "</a>"
                     )
 
                     partes.append("<div class='texto'>")
