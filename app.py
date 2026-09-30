@@ -27,6 +27,8 @@ audios = {}
 
 foto_pedido_recebido = False
 foto_pedido_recebido_em = None
+foto_recebida_servidor = False
+foto_recebida_servidor_em = None
 
 
 # =========================================================
@@ -630,14 +632,20 @@ async function verificarPedidoFoto() {
 
         const dados = await resposta.json();
 
+        if (dados.foto_recebida === true) {
+            mensagemFoto.textContent =
+                "✅ FOTO RECEBIDA PELO SERVIDOR"
+                + (dados.foto_recebida_em ? " • " + dados.foto_recebida_em : "");
+
+            botaoTirarFotos.disabled = false;
+            return;
+        }
+
         if (dados.recebido === true) {
             mensagemFoto.textContent =
                 "✅ ESP32 RECEBEU O PEDIDO DA FOTO"
                 + (dados.recebido_em ? " • " + dados.recebido_em : "")
                 + ". Agora é só aguardar a foto.";
-
-            botaoTirarFotos.disabled = false;
-            return;
         }
 
         setTimeout(verificarPedidoFoto, 500);
@@ -987,7 +995,7 @@ def audio_status(audio_id):
 @app.route("/comando-foto", methods=["POST"])
 def comando_foto():
 
-    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em
+    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em, foto_recebida_servidor, foto_recebida_servidor_em
 
     if not esp_esta_online():
         return jsonify({
@@ -1008,6 +1016,8 @@ def comando_foto():
         with lock:
             foto_pedido_recebido = False
             foto_pedido_recebido_em = None
+            foto_recebida_servidor = False
+            foto_recebida_servidor_em = None
 
         socket_atual.send("TIRAR_FOTOS")
 
@@ -1044,10 +1054,14 @@ def foto_comando_status():
     with lock:
         recebido = foto_pedido_recebido
         horario = foto_pedido_recebido_em
+        foto_chegou = foto_recebida_servidor
+        foto_chegou_em = foto_recebida_servidor_em
 
     return jsonify({
         "recebido": recebido,
-        "recebido_em": horario
+        "recebido_em": horario,
+        "foto_recebida": foto_chegou,
+        "foto_recebida_em": foto_chegou_em
     })
 
 
@@ -1346,6 +1360,14 @@ def receber_foto():
         arquivo.write(imagem)
 
     horario = agora.strftime("%d/%m/%Y %H:%M:%S")
+
+    # A foto já foi validada e gravada em disco. Portanto este é o ponto
+    # confiável para dizer à interface que ela realmente chegou ao servidor.
+    global foto_recebida_servidor, foto_recebida_servidor_em
+
+    with lock:
+        foto_recebida_servidor = True
+        foto_recebida_servidor_em = horario
 
     with lock_fotos:
 
