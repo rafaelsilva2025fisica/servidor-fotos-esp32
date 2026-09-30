@@ -25,6 +25,9 @@ ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
 
+foto_pedido_recebido = False
+foto_pedido_recebido_em = None
+
 
 # =========================================================
 # ESTADO DA ESP32
@@ -529,10 +532,18 @@ async function verificarConfirmacao() {
             mensagem.textContent =
                 "🎧 WAV RECEBIDO. Aguardando reprodução no Bluetooth...";
 
+        } else if (dados.download_iniciado === true) {
+
+            mensagem.textContent =
+                "⬇️ ESP32 COMEÇOU O DOWNLOAD DO ÁUDIO"
+                + (dados.download_iniciado_em
+                    ? " • " + dados.download_iniciado_em
+                    : "");
+
         } else {
 
             mensagem.textContent =
-                "📡 Aguardando a ESP32 receber o WAV...";
+                "📡 Aguardando a ESP32 começar o download...";
         }
 
         setTimeout(
@@ -583,11 +594,9 @@ botaoTirarFotos.onclick = async function() {
         }
 
         mensagemFoto.textContent =
-            "✅ Comando enviado. A ESP32 vai tirar uma foto.";
+            "📡 Comando enviado. Aguardando a ESP32 confirmar...";
 
-        setTimeout(function() {
-            botaoTirarFotos.disabled = false;
-        }, 2500);
+        verificarPedidoFoto();
 
     } catch (erro) {
 
@@ -597,6 +606,33 @@ botaoTirarFotos.onclick = async function() {
         botaoTirarFotos.disabled = false;
     }
 };
+
+async function verificarPedidoFoto() {
+
+    try {
+        const resposta = await fetch(
+            "/foto-comando-status?t=" + Date.now(),
+            { cache: "no-store" }
+        );
+
+        const dados = await resposta.json();
+
+        if (dados.recebido === true) {
+            mensagemFoto.textContent =
+                "✅ ESP32 RECEBEU O PEDIDO DA FOTO"
+                + (dados.recebido_em ? " • " + dados.recebido_em : "")
+                + ". Agora é só aguardar a foto.";
+
+            botaoTirarFotos.disabled = false;
+            return;
+        }
+
+        setTimeout(verificarPedidoFoto, 500);
+
+    } catch (erro) {
+        setTimeout(verificarPedidoFoto, 1000);
+    }
+}
 
 </script>
 
@@ -787,6 +823,8 @@ def enviar_audio():
 
         audios[audio_id] = {
             "arquivo": caminho_wav,
+            "download_iniciado": False,
+            "download_iniciado_em": None,
             "recebido": False,
             "reproduzido": False,
             "reproduzido_em": None,
@@ -890,6 +928,8 @@ def audio_status(audio_id):
         })
 
     return jsonify({
+        "download_iniciado": dados.get("download_iniciado", False),
+        "download_iniciado_em": dados.get("download_iniciado_em"),
         "recebido": dados["recebido"],
         "reproduzido": dados.get("reproduzido", False),
         "reproduzido_em": dados.get("reproduzido_em")
@@ -903,7 +943,7 @@ def audio_status(audio_id):
 @app.route("/comando-foto", methods=["POST"])
 def comando_foto():
 
-    global esp_ws
+    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em
 
     if not esp_esta_online():
         return jsonify({
@@ -921,6 +961,10 @@ def comando_foto():
         }), 503
 
     try:
+        with lock:
+            foto_pedido_recebido = False
+            foto_pedido_recebido_em = None
+
         socket_atual.send("TIRAR_FOTOS")
 
         print(
@@ -948,13 +992,29 @@ def comando_foto():
 
 
 # =========================================================
+# STATUS DO PEDIDO DE FOTO
+# =========================================================
+
+@app.route("/foto-comando-status")
+def foto_comando_status():
+    with lock:
+        recebido = foto_pedido_recebido
+        horario = foto_pedido_recebido_em
+
+    return jsonify({
+        "recebido": recebido,
+        "recebido_em": horario
+    })
+
+
+# =========================================================
 # WEBSOCKET
 # =========================================================
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
 
-    global esp_ws
+    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em
 
     print(
         "================================",
@@ -1006,6 +1066,35 @@ def websocket_esp32(ws):
             elif mensagem == "PRONTO":
 
                 ws.send("PRONTO_OK")
+
+            # DOWNLOAD DO AUDIO INICIADO
+
+            elif mensagem.startswith("AUDIO_DOWNLOAD_INICIADO|"):
+
+                partes = mensagem.split("|", 1)
+
+                if len(partes) == 2:
+                    audio_id = partes[1]
+                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                    with lock:
+                        if audio_id in audios:
+                            audios[audio_id]["download_iniciado"] = True
+                            audios[audio_id]["download_iniciado_em"] = horario
+
+                    print(">>> DOWNLOAD DO AUDIO INICIADO:", audio_id, flush=True)
+
+            # PEDIDO DE FOTO RECEBIDO
+
+            elif mensagem == "FOTO_PEDIDO_RECEBIDO":
+
+                horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                with lock:
+                    foto_pedido_recebido = True
+                    foto_pedido_recebido_em = horario
+
+                print(">>> ESP32 CONFIRMOU PEDIDO DE FOTO <<<", flush=True)
 
             # AUDIO RECEBIDO
 
