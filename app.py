@@ -262,9 +262,9 @@ audio {
 
         <div class="audio-card" style="margin-top:20px;">
             <h2>📸 Câmera ESP32</h2>
-            <button id="tirarFotos">📸 TIRAR 5 FOTOS</button>
+            <button id="tirarFotos">📸 TIRAR FOTO</button>
             <div id="mensagemFoto" class="detalhe">
-                Use o botão para solicitar uma sequência de 5 fotos.
+                Use o botão para solicitar uma foto.
             </div>
             <div class="detalhe">
                 <a href="/fotos" style="color:#58a6ff;">Ver fotos recebidas</a>
@@ -552,7 +552,7 @@ async function verificarConfirmacao() {
 
 
 // ======================================================
-// COMANDO REMOTO - 5 FOTOS
+// COMANDO REMOTO - FOTO
 // ======================================================
 
 const botaoTirarFotos = document.getElementById("tirarFotos");
@@ -583,7 +583,7 @@ botaoTirarFotos.onclick = async function() {
         }
 
         mensagemFoto.textContent =
-            "✅ Comando enviado. A ESP32 vai tirar 5 fotos.";
+            "✅ Comando enviado. A ESP32 vai tirar uma foto.";
 
         setTimeout(function() {
             botaoTirarFotos.disabled = false;
@@ -1266,7 +1266,7 @@ def fotos_status():
 
         lista = []
 
-        for numero_sequencia in sorted(sequencias_fotos.keys()):
+        for numero_sequencia in sorted(sequencias_fotos.keys(), reverse=True):
 
             sequencia = sequencias_fotos[numero_sequencia]
 
@@ -1304,9 +1304,9 @@ def pagina_fotos():
     partes.append(".container{max-width:1000px;margin:auto;}")
     partes.append(".seq{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;margin:0 0 22px 0;}")
     partes.append(".info{color:#8b949e;margin-bottom:15px;}")
-    partes.append(".grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;}")
+    partes.append(".grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,180px));gap:12px;justify-content:start;}")
     partes.append(".foto{background:#0d1117;border:1px solid #30363d;border-radius:10px;overflow:hidden;}")
-    partes.append(".foto img{width:100%;display:block;cursor:zoom-in;}")
+    partes.append(".foto img{width:100%;height:135px;object-fit:cover;display:block;cursor:zoom-in;}")
     partes.append(".texto{padding:11px;line-height:1.5;}")
     partes.append(".hora{color:#8b949e;font-size:14px;}")
     partes.append(".vazio{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;color:#8b949e;}")
@@ -1320,7 +1320,7 @@ def pagina_fotos():
 
     with lock_fotos:
 
-        numeros = sorted(sequencias_fotos.keys())
+        numeros = sorted(sequencias_fotos.keys(), reverse=True)
 
         if not numeros:
 
@@ -1330,9 +1330,7 @@ def pagina_fotos():
 
         else:
 
-            # Ordem crescente:
-            # sequencia 1 primeiro, depois 2, depois 3...
-            # portanto cada nova sequencia fica ABAIXO da anterior.
+            # Ordem decrescente: a sequencia mais nova aparece primeiro.
             for numero_sequencia in numeros:
 
                 sequencia = sequencias_fotos[numero_sequencia]
@@ -1356,7 +1354,7 @@ def pagina_fotos():
 
                 partes.append("<div class='grade'>")
 
-                for numero_foto in sorted(fotos.keys()):
+                for numero_foto in sorted(fotos.keys(), reverse=True):
 
                     foto = fotos[numero_foto]
 
