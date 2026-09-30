@@ -272,7 +272,7 @@ audio {
                 Use o botão para solicitar uma foto.
             </div>
             <div class="detalhe">
-                <a href="/fotos" style="color:#58a6ff;">Ver fotos recebidas</a>
+                <a href="/fotos" target="_blank" rel="noopener noreferrer" style="color:#58a6ff;">Ver fotos recebidas</a>
             </div>
         </div>
 
