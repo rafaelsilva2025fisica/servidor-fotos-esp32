@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template_string, request, send_file
+from flask import Flask, jsonify, render_template_string, request, send_file, send_from_directory
 from flask_sock import Sock
 import threading
 import time
@@ -6,8 +6,15 @@ import os
 import uuid
 import subprocess
 import imageio_ffmpeg
+from datetime import datetime
 
 app = Flask(__name__)
+
+# =========================================================
+# GALERIA DE FOTOS
+# =========================================================
+PASTA_GALERIA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "galeria")
+os.makedirs(PASTA_GALERIA, exist_ok=True)
 sock = Sock(app)
 
 # =========================================================
@@ -241,6 +248,82 @@ audio {
     }
 }
 
+
+.galeria-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0,0,0,.88);
+    overflow-y: auto;
+    padding: 28px;
+}
+
+.galeria-modal.aberta {
+    display: block;
+}
+
+.galeria-caixa {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.galeria-topo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.galeria-topo h2 {
+    margin: 0;
+}
+
+#fecharGaleria {
+    width: auto;
+    background: #30363d;
+    color: white;
+}
+
+.galeria-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.foto-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.foto-card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    cursor: pointer;
+}
+
+.foto-info {
+    padding: 10px;
+    font-size: 12px;
+    color: #8b949e;
+    overflow-wrap: anywhere;
+}
+
+.galeria-vazia {
+    color: #8b949e;
+    padding: 30px 0;
+    text-align: center;
+}
+
 </style>
 
 </head>
@@ -317,6 +400,17 @@ audio {
 </div>
 
 
+
+<div id="galeriaModal" class="galeria-modal">
+    <div class="galeria-caixa">
+        <div class="galeria-topo">
+            <h2>🖼️ Galeria</h2>
+            <button id="fecharGaleria">FECHAR</button>
+        </div>
+        <div id="galeriaGrid" class="galeria-grid"></div>
+    </div>
+</div>
+
 <script>
 
 let mediaRecorder = null;
@@ -332,6 +426,9 @@ const mensagem = document.getElementById("mensagem");
 const botaoTirarFoto = document.getElementById("tirarFoto");
 const botaoGaleria = document.getElementById("galeria");
 const mensagemCamera = document.getElementById("mensagemCamera");
+const galeriaModal = document.getElementById("galeriaModal");
+const galeriaGrid = document.getElementById("galeriaGrid");
+const fecharGaleria = document.getElementById("fecharGaleria");
 
 
 // ======================================================
@@ -631,11 +728,65 @@ botaoTirarFoto.onclick = async function() {
 };
 
 
-// Nesta etapa a galeria é apenas o botão/área reservada.
-// Na próxima etapa ligaremos aqui as fotos enviadas pela ESP32.
-botaoGaleria.onclick = function() {
-    mensagemCamera.textContent =
-        "🖼️ Galeria preparada. As fotos aparecerão aqui na próxima etapa.";
+async function carregarGaleria() {
+    galeriaGrid.innerHTML = '<div class="galeria-vazia">Carregando...</div>';
+
+    try {
+        const resposta = await fetch("/api/galeria");
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            throw new Error(dados.erro || "Erro ao carregar galeria");
+        }
+
+        if (!dados.fotos || dados.fotos.length === 0) {
+            galeriaGrid.innerHTML =
+                '<div class="galeria-vazia">Ainda não há fotos recebidas.</div>';
+            return;
+        }
+
+        galeriaGrid.innerHTML = "";
+
+        dados.fotos.forEach(function(foto) {
+            const card = document.createElement("div");
+            card.className = "foto-card";
+
+            const img = document.createElement("img");
+            img.src = foto.url;
+            img.alt = foto.nome;
+            img.loading = "lazy";
+            img.onclick = function() {
+                window.open(foto.url, "_blank");
+            };
+
+            const info = document.createElement("div");
+            info.className = "foto-info";
+            info.textContent = foto.nome;
+
+            card.appendChild(img);
+            card.appendChild(info);
+            galeriaGrid.appendChild(card);
+        });
+
+    } catch (erro) {
+        galeriaGrid.innerHTML =
+            '<div class="galeria-vazia">Erro ao carregar a galeria.</div>';
+    }
+}
+
+botaoGaleria.onclick = async function() {
+    galeriaModal.classList.add("aberta");
+    await carregarGaleria();
+};
+
+fecharGaleria.onclick = function() {
+    galeriaModal.classList.remove("aberta");
+};
+
+galeriaModal.onclick = function(evento) {
+    if (evento.target === galeriaModal) {
+        galeriaModal.classList.remove("aberta");
+    }
 };
 
 </script>
@@ -981,6 +1132,103 @@ def tirar_foto():
         "comando": "TIRAR_FOTO"
     })
 
+
+
+# =========================================================
+# RECEBER FOTO DA ESP32 + GALERIA
+# =========================================================
+
+@app.route("/upload-foto", methods=["POST"])
+def upload_foto():
+    dados = request.get_data(cache=False)
+
+    if not dados:
+        return jsonify({"erro": "Foto vazia."}), 400
+
+    # Validação simples de JPEG: FF D8 ... FF D9.
+    if len(dados) < 4 or dados[0:2] != b"\xff\xd8":
+        return jsonify({"erro": "Arquivo recebido não parece JPEG."}), 400
+
+    agora = datetime.now()
+    base = agora.strftime("foto_%Y%m%d_%H%M%S_%f")
+    nome = base + ".jpg"
+    caminho = os.path.join(PASTA_GALERIA, nome)
+
+    # Segurança extra contra colisão de nome.
+    contador = 1
+    while os.path.exists(caminho):
+        nome = f"{base}_{contador}.jpg"
+        caminho = os.path.join(PASTA_GALERIA, nome)
+        contador += 1
+
+    try:
+        with open(caminho, "wb") as arquivo:
+            arquivo.write(dados)
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
+    except Exception as erro:
+        print("ERRO SALVANDO FOTO:", erro, flush=True)
+        return jsonify({"erro": "Falha ao salvar foto."}), 500
+
+    tamanho = os.path.getsize(caminho)
+    if tamanho != len(dados):
+        try:
+            os.remove(caminho)
+        except Exception:
+            pass
+        return jsonify({"erro": "Foto foi salva incompleta."}), 500
+
+    print(
+        f"FOTO RECEBIDA: {nome} - {tamanho} bytes",
+        flush=True
+    )
+
+    return jsonify({
+        "ok": True,
+        "nome": nome,
+        "tamanho": tamanho,
+        "url": f"/galeria/{nome}"
+    }), 201
+
+
+@app.route("/api/galeria", methods=["GET"])
+def api_galeria():
+    try:
+        nomes = [
+            nome for nome in os.listdir(PASTA_GALERIA)
+            if nome.lower().endswith((".jpg", ".jpeg"))
+        ]
+
+        # Mais novas primeiro.
+        nomes.sort(
+            key=lambda nome: os.path.getmtime(
+                os.path.join(PASTA_GALERIA, nome)
+            ),
+            reverse=True
+        )
+
+        fotos = [
+            {
+                "nome": nome,
+                "url": f"/galeria/{nome}"
+            }
+            for nome in nomes
+        ]
+
+        return jsonify({
+            "ok": True,
+            "quantidade": len(fotos),
+            "fotos": fotos
+        })
+
+    except Exception as erro:
+        print("ERRO LISTANDO GALERIA:", erro, flush=True)
+        return jsonify({"erro": "Falha ao listar galeria."}), 500
+
+
+@app.route("/galeria/<path:nome>", methods=["GET"])
+def arquivo_galeria(nome):
+    return send_from_directory(PASTA_GALERIA, nome)
 
 # =========================================================
 # WEBSOCKET
