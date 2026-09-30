@@ -475,7 +475,7 @@ botaoEnviar.onclick = async function() {
         audioAtualId = dados.audio_id;
 
         mensagem.textContent =
-            "📡 WAV pronto. ESP32 avisada. Aguardando download...";
+            "📡 WAV pronto. Aguardando a ESP32 confirmar que recebeu o pedido...";
 
         verificarConfirmacao();
 
@@ -527,30 +527,15 @@ async function verificarConfirmacao() {
             return;
         }
 
-        if (dados.bluetooth_status === "resetando_apos_5_falhas") {
-            mensagem.textContent =
-                "🔄 Bluetooth não encontrado após 5 de 5. ESP32 reiniciando; o áudio será baixado novamente.";
-            setTimeout(verificarConfirmacao, 1000);
-            return;
-        }
+        if (dados.download_erro === true) {
 
-        if (dados.bluetooth_status === "nao_encontrado") {
             mensagem.textContent =
-                "⚠️ Bluetooth não encontrado/conectado — tentativa "
-                + dados.bluetooth_tentativa + " de 5.";
-            setTimeout(verificarConfirmacao, 1000);
-            return;
-        }
+                "❌ ERRO AO BAIXAR O ÁUDIO NA ESP32. Grave outro áudio e envie novamente.";
 
-        if (dados.bluetooth_status === "reproducao_interrompida") {
-            mensagem.textContent =
-                "⚠️ Bluetooth interrompido — tentativa "
-                + dados.bluetooth_tentativa + " de 5.";
-            setTimeout(verificarConfirmacao, 1000);
+            botaoEnviar.disabled = false;
             return;
-        }
 
-        if (dados.recebido === true) {
+        } else if (dados.recebido === true) {
 
             mensagem.textContent =
                 "🎧 WAV RECEBIDO. Aguardando reprodução no Bluetooth...";
@@ -563,10 +548,15 @@ async function verificarConfirmacao() {
                     ? " • " + dados.download_iniciado_em
                     : "");
 
+        } else if (dados.pedido_recebido === true) {
+
+            mensagem.textContent =
+                "✅ ESP32 RECEBEU O PEDIDO. Preparando para baixar o áudio...";
+
         } else {
 
             mensagem.textContent =
-                "📡 Aguardando a ESP32 começar o download...";
+                "📡 Aguardando a ESP32 confirmar que recebeu o pedido...";
         }
 
         setTimeout(
@@ -846,11 +836,12 @@ def enviar_audio():
 
         audios[audio_id] = {
             "arquivo": caminho_wav,
+            "pedido_recebido": False,
+            "pedido_recebido_em": None,
             "download_iniciado": False,
             "download_iniciado_em": None,
-            "bluetooth_status": None,
-            "bluetooth_tentativa": 0,
-            "bluetooth_status_em": None,
+            "download_erro": False,
+            "download_erro_em": None,
             "recebido": False,
             "reproduzido": False,
             "reproduzido_em": None,
@@ -923,6 +914,12 @@ def baixar_audio(audio_id):
             "erro": "Arquivo não existe."
         }), 404
 
+    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+    with lock:
+        if audio_id in audios:
+            audios[audio_id]["download_iniciado"] = True
+            audios[audio_id]["download_iniciado_em"] = horario
+
     print(
         ">>> ESP32 INICIOU DOWNLOAD DO WAV:",
         audio_id,
@@ -935,6 +932,23 @@ def baixar_audio(audio_id):
         as_attachment=False,
         download_name="audio.wav"
     )
+
+
+# =========================================================
+# ESP32 AVISA QUE O DOWNLOAD FALHOU
+# =========================================================
+
+@app.route("/audio-download-erro/<audio_id>", methods=["GET"])
+def audio_download_erro(audio_id):
+    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+    with lock:
+        if audio_id in audios:
+            audios[audio_id]["download_erro"] = True
+            audios[audio_id]["download_erro_em"] = horario
+
+    print(">>> ESP32 INFORMOU ERRO NO DOWNLOAD:", audio_id, flush=True)
+    return jsonify({"ok": True})
 
 
 # =========================================================
@@ -954,11 +968,12 @@ def audio_status(audio_id):
         })
 
     return jsonify({
+        "pedido_recebido": dados.get("pedido_recebido", False),
+        "pedido_recebido_em": dados.get("pedido_recebido_em"),
         "download_iniciado": dados.get("download_iniciado", False),
         "download_iniciado_em": dados.get("download_iniciado_em"),
-        "bluetooth_status": dados.get("bluetooth_status"),
-        "bluetooth_tentativa": dados.get("bluetooth_tentativa", 0),
-        "bluetooth_status_em": dados.get("bluetooth_status_em"),
+        "download_erro": dados.get("download_erro", False),
+        "download_erro_em": dados.get("download_erro_em"),
         "recebido": dados["recebido"],
         "reproduzido": dados.get("reproduzido", False),
         "reproduzido_em": dados.get("reproduzido_em")
@@ -1018,30 +1033,6 @@ def comando_foto():
             "ok": False,
             "erro": "Falha ao enviar comando para a ESP32."
         }), 500
-
-
-# =========================================================
-# STATUS BLUETOOTH DA ESP32
-# =========================================================
-@app.route("/esp-status-bluetooth")
-def esp_status_bluetooth():
-    audio_id = request.args.get("id", "")
-    estado = request.args.get("estado", "")
-    try:
-        tentativa = int(request.args.get("tentativa", "0"))
-    except Exception:
-        tentativa = 0
-
-    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-
-    with lock:
-        if audio_id in audios:
-            audios[audio_id]["bluetooth_status"] = estado
-            audios[audio_id]["bluetooth_tentativa"] = tentativa
-            audios[audio_id]["bluetooth_status_em"] = horario
-
-    print(">>> STATUS BLUETOOTH:", audio_id, estado, tentativa, flush=True)
-    return jsonify({"ok": True})
 
 
 # =========================================================
@@ -1120,7 +1111,24 @@ def websocket_esp32(ws):
 
                 ws.send("PRONTO_OK")
 
-            # DOWNLOAD DO AUDIO INICIADO
+            # ESP32 RECEBEU O PEDIDO DO AUDIO
+
+            elif mensagem.startswith("AUDIO_PEDIDO_RECEBIDO|"):
+
+                partes = mensagem.split("|", 1)
+
+                if len(partes) == 2:
+                    audio_id = partes[1]
+                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                    with lock:
+                        if audio_id in audios:
+                            audios[audio_id]["pedido_recebido"] = True
+                            audios[audio_id]["pedido_recebido_em"] = horario
+
+                    print(">>> ESP32 CONFIRMOU PEDIDO DO AUDIO:", audio_id, flush=True)
+
+            # DOWNLOAD DO AUDIO INICIADO (compatibilidade)
 
             elif mensagem.startswith("AUDIO_DOWNLOAD_INICIADO|"):
 
@@ -1134,9 +1142,6 @@ def websocket_esp32(ws):
                         if audio_id in audios:
                             audios[audio_id]["download_iniciado"] = True
                             audios[audio_id]["download_iniciado_em"] = horario
-                            audios[audio_id]["bluetooth_status"] = None
-                            audios[audio_id]["bluetooth_tentativa"] = 0
-                            audios[audio_id]["bluetooth_status_em"] = None
 
                     print(">>> DOWNLOAD DO AUDIO INICIADO:", audio_id, flush=True)
 
