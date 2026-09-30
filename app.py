@@ -3,6 +3,7 @@ from flask_sock import Sock
 import threading
 import time
 import os
+import shutil
 import uuid
 import subprocess
 import imageio_ffmpeg
@@ -29,6 +30,9 @@ foto_pedido_recebido = False
 foto_pedido_recebido_em = None
 foto_recebida_servidor = False
 foto_recebida_servidor_em = None
+limpeza_fotos_sd_ok = False
+limpeza_fotos_sd_erro = False
+limpeza_fotos_sd_em = None
 
 
 # =========================================================
@@ -190,6 +194,13 @@ button {
     margin-top: 12px;
 }
 
+#limparFotos {
+    background: #da3633;
+    color: white;
+    width: 100%;
+    margin-top: 10px;
+}
+
 button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -268,6 +279,7 @@ audio {
         <div class="audio-card" style="margin-top:20px;">
             <h2>📸 Câmera ESP32</h2>
             <button id="tirarFotos">📸 TIRAR FOTO</button>
+            <button id="limparFotos">🗑️ LIMPAR TODAS AS FOTOS</button>
             <div id="mensagemFoto" class="detalhe">
                 Use o botão para solicitar uma foto.
             </div>
@@ -582,6 +594,7 @@ async function verificarConfirmacao() {
 // ======================================================
 
 const botaoTirarFotos = document.getElementById("tirarFotos");
+const botaoLimparFotos = document.getElementById("limparFotos");
 const mensagemFoto = document.getElementById("mensagemFoto");
 
 botaoTirarFotos.onclick = async function() {
@@ -621,6 +634,73 @@ botaoTirarFotos.onclick = async function() {
         botaoTirarFotos.disabled = false;
     }
 };
+
+
+botaoLimparFotos.onclick = async function() {
+
+    if (!confirm("Apagar TODAS as fotos do servidor e do cartao SD da ESP32?")) {
+        return;
+    }
+
+    botaoLimparFotos.disabled = true;
+    mensagemFoto.textContent = "🗑️ Limpando servidor e cartão SD...";
+
+    try {
+        const resposta = await fetch(
+            "/limpar-fotos",
+            { method: "POST", cache: "no-store" }
+        );
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            mensagemFoto.textContent =
+                "❌ " + (dados.erro || "Falha ao iniciar limpeza.");
+            botaoLimparFotos.disabled = false;
+            return;
+        }
+
+        mensagemFoto.textContent =
+            "✅ Servidor limpo. Aguardando a ESP32 confirmar o cartão SD...";
+
+        verificarLimpezaFotos();
+
+    } catch (erro) {
+        mensagemFoto.textContent = "❌ Erro de comunicação.";
+        botaoLimparFotos.disabled = false;
+    }
+};
+
+async function verificarLimpezaFotos() {
+    try {
+        const resposta = await fetch(
+            "/limpar-fotos-status?t=" + Date.now(),
+            { cache: "no-store" }
+        );
+
+        const dados = await resposta.json();
+
+        if (dados.sd_erro === true) {
+            mensagemFoto.textContent =
+                "❌ Servidor limpo, mas houve erro ao limpar as fotos do cartão SD.";
+            botaoLimparFotos.disabled = false;
+            return;
+        }
+
+        if (dados.sd_limpo === true) {
+            mensagemFoto.textContent =
+                "✅ TUDO LIMPO: servidor + cartão SD da ESP32"
+                + (dados.sd_limpo_em ? " • " + dados.sd_limpo_em : "");
+            botaoLimparFotos.disabled = false;
+            return;
+        }
+
+        setTimeout(verificarLimpezaFotos, 500);
+
+    } catch (erro) {
+        setTimeout(verificarLimpezaFotos, 1000);
+    }
+}
 
 async function verificarPedidoFoto() {
 
@@ -995,7 +1075,7 @@ def audio_status(audio_id):
 @app.route("/comando-foto", methods=["POST"])
 def comando_foto():
 
-    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em, foto_recebida_servidor, foto_recebida_servidor_em
+    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em, limpeza_fotos_sd_ok, limpeza_fotos_sd_erro, limpeza_fotos_sd_em, foto_recebida_servidor, foto_recebida_servidor_em
 
     if not esp_esta_online():
         return jsonify({
@@ -1063,6 +1143,91 @@ def foto_comando_status():
         "foto_recebida": foto_chegou,
         "foto_recebida_em": foto_chegou_em
     })
+
+
+
+# =========================================================
+# LIMPAR FOTOS - SERVIDOR + CARTAO SD DA ESP32
+# =========================================================
+
+@app.route("/limpar-fotos", methods=["POST"])
+def limpar_fotos():
+    global contador_sequencia_fotos
+    global foto_recebida_servidor, foto_recebida_servidor_em
+    global limpeza_fotos_sd_ok, limpeza_fotos_sd_erro, limpeza_fotos_sd_em
+    global esp_ws
+
+    if not esp_esta_online():
+        return jsonify({
+            "ok": False,
+            "erro": "ESP32 esta desconectada. Nada foi apagado."
+        }), 503
+
+    with lock:
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({
+            "ok": False,
+            "erro": "WebSocket da ESP32 nao esta disponivel. Nada foi apagado."
+        }), 503
+
+    # Primeiro confirma que conseguimos mandar o comando para a ESP32.
+    try:
+        with lock:
+            limpeza_fotos_sd_ok = False
+            limpeza_fotos_sd_erro = False
+            limpeza_fotos_sd_em = None
+
+        socket_atual.send("LIMPAR_FOTOS")
+        print("SERVIDOR -> ESP32: LIMPAR_FOTOS", flush=True)
+
+    except Exception as erro:
+        return jsonify({
+            "ok": False,
+            "erro": "Nao foi possivel mandar a limpeza para a ESP32."
+        }), 500
+
+    # Limpa todas as imagens do servidor.
+    try:
+        if os.path.exists(FOTO_DIR):
+            shutil.rmtree(FOTO_DIR)
+
+        os.makedirs(FOTO_DIR, exist_ok=True)
+
+        with lock_fotos:
+            sequencias_fotos.clear()
+            contador_sequencia_fotos = 0
+
+        with lock:
+            foto_recebida_servidor = False
+            foto_recebida_servidor_em = None
+
+        print(">>> TODAS AS FOTOS DO SERVIDOR FORAM APAGADAS <<<", flush=True)
+
+    except Exception as erro:
+        print("ERRO LIMPANDO SERVIDOR:", erro, flush=True)
+        return jsonify({
+            "ok": False,
+            "erro": "Comando enviado a ESP32, mas houve erro limpando o servidor."
+        }), 500
+
+    return jsonify({
+        "ok": True,
+        "servidor_limpo": True,
+        "aguardando_esp32": True
+    })
+
+
+@app.route("/limpar-fotos-status")
+def limpar_fotos_status():
+    with lock:
+        return jsonify({
+            "ok": True,
+            "sd_limpo": limpeza_fotos_sd_ok,
+            "sd_erro": limpeza_fotos_sd_erro,
+            "sd_limpo_em": limpeza_fotos_sd_em
+        })
 
 
 # =========================================================
@@ -1170,6 +1335,28 @@ def websocket_esp32(ws):
                     foto_pedido_recebido_em = horario
 
                 print(">>> ESP32 CONFIRMOU PEDIDO DE FOTO <<<", flush=True)
+
+            # ESP32 CONFIRMOU LIMPEZA DAS FOTOS DO SD
+
+            elif mensagem == "FOTOS_SD_LIMPAS":
+                horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                with lock:
+                    limpeza_fotos_sd_ok = True
+                    limpeza_fotos_sd_erro = False
+                    limpeza_fotos_sd_em = horario
+
+                print(">>> ESP32 CONFIRMOU: FOTOS DO SD APAGADAS <<<", flush=True)
+
+            elif mensagem == "ERRO_LIMPAR_FOTOS_SD":
+                horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                with lock:
+                    limpeza_fotos_sd_ok = False
+                    limpeza_fotos_sd_erro = True
+                    limpeza_fotos_sd_em = horario
+
+                print(">>> ESP32 INFORMOU ERRO AO LIMPAR FOTOS DO SD <<<", flush=True)
 
             # AUDIO RECEBIDO
 
@@ -1488,6 +1675,26 @@ def pagina_fotos():
     partes.append("<body>")
     partes.append("<div class='container'>")
     partes.append("<h1>Fotos da ESP32</h1>")
+
+    partes.append("<button onclick='limparTudoFotos()' style='background:#da3633;color:white;border:0;border-radius:8px;padding:12px 16px;font-weight:bold;cursor:pointer;margin-bottom:14px;'>🗑️ LIMPAR TODAS AS FOTOS</button>")
+    partes.append("<div id='msgLimpeza' class='info'></div>")
+    partes.append("<script>")
+    partes.append("async function limparTudoFotos(){")
+    partes.append("if(!confirm('Apagar TODAS as fotos do servidor e do cartao SD da ESP32?'))return;")
+    partes.append("document.getElementById('msgLimpeza').textContent='Limpando...';")
+    partes.append("const r=await fetch('/limpar-fotos',{method:'POST',cache:'no-store'});")
+    partes.append("const d=await r.json();")
+    partes.append("if(!r.ok){document.getElementById('msgLimpeza').textContent='Erro: '+(d.erro||'falha');return;}")
+    partes.append("document.getElementById('msgLimpeza').textContent='Servidor limpo. Aguardando ESP32...';")
+    partes.append("const t=setInterval(async()=>{")
+    partes.append("const s=await fetch('/limpar-fotos-status?t='+Date.now(),{cache:'no-store'});")
+    partes.append("const j=await s.json();")
+    partes.append("if(j.sd_limpo){clearInterval(t);document.getElementById('msgLimpeza').textContent='Tudo limpo: servidor + ESP32';setTimeout(()=>location.reload(),700);}")
+    partes.append("else if(j.sd_erro){clearInterval(t);document.getElementById('msgLimpeza').textContent='Servidor limpo, mas houve erro no SD.';}")
+    partes.append("},500);")
+    partes.append("}")
+    partes.append("</script>")
+
     partes.append("<div class='info'>Atualizacao automatica a cada 2 segundos. Clique em uma foto para abrir grande em nova aba.</div>")
 
     with lock_fotos:
