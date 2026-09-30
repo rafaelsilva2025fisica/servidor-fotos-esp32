@@ -529,6 +529,17 @@ async function verificarConfirmacao() {
             return;
         }
 
+        if (dados.bluetooth_falhou === true) {
+
+            mensagem.textContent =
+                "⚠️ BLUETOOTH NÃO CONECTOU / APARELHO PODE ESTAR DESLIGADO"
+                + (dados.bluetooth_falhou_em ? " • " + dados.bluetooth_falhou_em : "")
+                + ". Ligue o Bluetooth e envie um novo áudio.";
+
+            botaoEnviar.disabled = false;
+            return;
+        }
+
         if (dados.download_erro === true) {
 
             mensagem.textContent =
@@ -850,6 +861,8 @@ def enviar_audio():
             "download_iniciado_em": None,
             "download_erro": False,
             "download_erro_em": None,
+            "bluetooth_falhou": False,
+            "bluetooth_falhou_em": None,
             "recebido": False,
             "reproduzido": False,
             "reproduzido_em": None,
@@ -982,6 +995,8 @@ def audio_status(audio_id):
         "download_iniciado_em": dados.get("download_iniciado_em"),
         "download_erro": dados.get("download_erro", False),
         "download_erro_em": dados.get("download_erro_em"),
+        "bluetooth_falhou": dados.get("bluetooth_falhou", False),
+        "bluetooth_falhou_em": dados.get("bluetooth_falhou_em"),
         "recebido": dados["recebido"],
         "reproduzido": dados.get("reproduzido", False),
         "reproduzido_em": dados.get("reproduzido_em")
@@ -1194,6 +1209,25 @@ def websocket_esp32(ws):
                     )
 
             # AUDIO REPRODUZIDO NO BLUETOOTH
+
+            elif mensagem.startswith("BLUETOOTH_FALHOU|"):
+
+                partes = mensagem.split("|", 1)
+
+                if len(partes) == 2:
+                    audio_id = partes[1]
+                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                    with lock:
+                        if audio_id in audios:
+                            audios[audio_id]["bluetooth_falhou"] = True
+                            audios[audio_id]["bluetooth_falhou_em"] = horario
+
+                    print(
+                        ">>> ESP32 INFORMOU FALHA NO BLUETOOTH:",
+                        audio_id,
+                        flush=True
+                    )
 
             elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
 
