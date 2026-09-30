@@ -33,6 +33,35 @@ esp_ws = None
 audios = {}
 
 
+logs_esp32 = []
+MAX_LOGS_ESP32 = 300
+
+def adicionar_log_esp32(nivel, mensagem):
+    nivel = (nivel or "INFO").upper().strip()
+    if nivel not in {"INFO", "OK", "AVISO", "ERRO"}:
+        nivel = "INFO"
+
+    item = {
+        "id": uuid.uuid4().hex[:10],
+        "hora": datetime.now().strftime("%d/%m %H:%M:%S"),
+        "nivel": nivel,
+        "mensagem": str(mensagem)[:500]
+    }
+
+    with lock:
+        logs_esp32.append(item)
+        if len(logs_esp32) > MAX_LOGS_ESP32:
+            del logs_esp32[:-MAX_LOGS_ESP32]
+
+    print(
+        f"LOG ESP32 [{item['nivel']}] {item['mensagem']}",
+        flush=True
+    )
+
+    return item
+
+
+
 # =========================================================
 # ESTADO DA ESP32
 # =========================================================
@@ -324,11 +353,161 @@ audio {
     text-align: center;
 }
 
+
+/* =========================================================
+   LOGS ESP32 - painel independente à esquerda
+   ========================================================= */
+.logs-panel {
+    position: fixed;
+    left: 24px;
+    top: 35px;
+    width: 300px;
+    max-height: calc(100vh - 70px);
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    padding: 16px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.logs-topo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.logs-topo h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+#atualizarLogs {
+    padding: 8px 10px;
+    font-size: 12px;
+    background: #30363d;
+    color: white;
+}
+
+.logs-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.logs-filtros button {
+    padding: 7px 9px;
+    font-size: 11px;
+    background: #21262d;
+    color: #c9d1d9;
+}
+
+.logs-filtros button.ativo {
+    outline: 2px solid #58a6ff;
+}
+
+#limparLogs {
+    background: #6e2b2b;
+}
+
+.logs-lista {
+    overflow-y: auto;
+    min-height: 220px;
+    max-height: calc(100vh - 215px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-right: 3px;
+}
+
+.log-item {
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 9px;
+    background: #0d1117;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.log-cabecalho {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.log-hora {
+    color: #8b949e;
+}
+
+.log-nivel {
+    font-weight: bold;
+}
+
+.log-OK .log-nivel { color: #3fb950; }
+.log-INFO .log-nivel { color: #58a6ff; }
+.log-AVISO .log-nivel { color: #d29922; }
+.log-ERRO .log-nivel { color: #f85149; }
+
+.log-msg {
+    color: #c9d1d9;
+    overflow-wrap: anywhere;
+}
+
+.logs-vazio {
+    color: #8b949e;
+    text-align: center;
+    padding: 24px 5px;
+}
+
+@media (max-width: 1400px) {
+    .logs-panel {
+        width: 250px;
+    }
+}
+
+@media (max-width: 1150px) {
+    .logs-panel {
+        position: static;
+        width: 100%;
+        max-height: none;
+        margin-bottom: 18px;
+    }
+
+    .logs-lista {
+        max-height: 320px;
+    }
+}
+
 </style>
 
 </head>
 
 <body>
+
+<div class="logs-panel">
+    <div class="logs-topo">
+        <h2>📋 LOGS ESP32</h2>
+        <button id="atualizarLogs">↻ ATUALIZAR</button>
+    </div>
+
+    <div class="logs-filtros">
+        <button class="filtro-log ativo" data-nivel="TODOS">TODOS</button>
+        <button class="filtro-log" data-nivel="ERRO">ERROS</button>
+        <button class="filtro-log" data-nivel="AVISO">AVISOS</button>
+        <button class="filtro-log" data-nivel="OK">OK</button>
+        <button class="filtro-log" data-nivel="INFO">INFO</button>
+        <button id="limparLogs">LIMPAR</button>
+    </div>
+
+    <div id="logsLista" class="logs-lista">
+        <div class="logs-vazio">Aguardando logs da ESP32...</div>
+    </div>
+</div>
+
 
 <div class="container">
 
@@ -412,6 +591,118 @@ audio {
 </div>
 
 <script>
+
+// ======================================================
+// LOGS ESP32
+// ======================================================
+
+const logsLista = document.getElementById("logsLista");
+const atualizarLogsBtn = document.getElementById("atualizarLogs");
+const limparLogsBtn = document.getElementById("limparLogs");
+const filtrosLogs = document.querySelectorAll(".filtro-log");
+
+let filtroLogAtual = "TODOS";
+let ultimoSnapshotLogs = [];
+
+function iconeNivel(nivel) {
+    if (nivel === "OK") return "🟢";
+    if (nivel === "ERRO") return "🔴";
+    if (nivel === "AVISO") return "🟡";
+    return "🔵";
+}
+
+function renderizarLogs() {
+    const filtrados = ultimoSnapshotLogs.filter(function(item) {
+        return filtroLogAtual === "TODOS" || item.nivel === filtroLogAtual;
+    });
+
+    if (filtrados.length === 0) {
+        logsLista.innerHTML =
+            '<div class="logs-vazio">Nenhum log neste filtro.</div>';
+        return;
+    }
+
+    logsLista.innerHTML = "";
+
+    filtrados.forEach(function(item) {
+        const caixa = document.createElement("div");
+        caixa.className = "log-item log-" + item.nivel;
+
+        const cab = document.createElement("div");
+        cab.className = "log-cabecalho";
+
+        const nivel = document.createElement("span");
+        nivel.className = "log-nivel";
+        nivel.textContent = iconeNivel(item.nivel) + " " + item.nivel;
+
+        const hora = document.createElement("span");
+        hora.className = "log-hora";
+        hora.textContent = item.hora;
+
+        const msg = document.createElement("div");
+        msg.className = "log-msg";
+        msg.textContent = item.mensagem;
+
+        cab.appendChild(nivel);
+        cab.appendChild(hora);
+        caixa.appendChild(cab);
+        caixa.appendChild(msg);
+        logsLista.appendChild(caixa);
+    });
+
+    logsLista.scrollTop = 0;
+}
+
+async function carregarLogs() {
+    try {
+        const resposta = await fetch(
+            "/api/logs?t=" + Date.now(),
+            { cache: "no-store" }
+        );
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            throw new Error(dados.erro || "Erro ao consultar logs");
+        }
+
+        ultimoSnapshotLogs = dados.logs || [];
+        renderizarLogs();
+
+    } catch (erro) {
+        logsLista.innerHTML =
+            '<div class="logs-vazio">Erro ao consultar logs.</div>';
+    }
+}
+
+filtrosLogs.forEach(function(botao) {
+    botao.onclick = function() {
+        filtrosLogs.forEach(function(b) {
+            b.classList.remove("ativo");
+        });
+
+        botao.classList.add("ativo");
+        filtroLogAtual = botao.dataset.nivel;
+        renderizarLogs();
+    };
+});
+
+atualizarLogsBtn.onclick = carregarLogs;
+
+limparLogsBtn.onclick = async function() {
+    try {
+        await fetch("/api/logs", { method: "DELETE" });
+        ultimoSnapshotLogs = [];
+        renderizarLogs();
+    } catch (erro) {
+        // Mantém a tela atual caso a limpeza falhe.
+    }
+};
+
+// Atualização quase em tempo real, sem interferir no WebSocket da ESP32.
+carregarLogs();
+setInterval(carregarLogs, 1500);
+
 
 let mediaRecorder = null;
 let partes = [];
@@ -1084,6 +1375,32 @@ def audio_status(audio_id):
 
 
 
+
+# =========================================================
+# LOGS ESP32
+# =========================================================
+
+@app.route("/api/logs", methods=["GET"])
+def api_logs():
+    with lock:
+        itens = list(reversed(logs_esp32))
+
+    return jsonify({
+        "ok": True,
+        "quantidade": len(itens),
+        "logs": itens
+    })
+
+
+@app.route("/api/logs", methods=["DELETE"])
+def limpar_logs():
+    with lock:
+        logs_esp32.clear()
+
+    return jsonify({
+        "ok": True
+    })
+
 # =========================================================
 # TIRAR FOTO
 # =========================================================
@@ -1114,6 +1431,7 @@ def tirar_foto():
             "SERVIDOR -> ESP32: TIRAR_FOTO",
             flush=True
         )
+        adicionar_log_esp32("INFO", "Comando TIRAR_FOTO enviado para a ESP32.")
 
     except Exception as erro:
 
@@ -1182,6 +1500,7 @@ def upload_foto():
         f"FOTO RECEBIDA: {nome} - {tamanho} bytes",
         flush=True
     )
+    adicionar_log_esp32("OK", f"Foto recebida pelo servidor: {nome} ({tamanho} bytes).")
 
     return jsonify({
         "ok": True,
@@ -1255,6 +1574,7 @@ def websocket_esp32(ws):
     )
 
     registrar_sinal_esp()
+    adicionar_log_esp32("OK", "ESP32 conectada ao WebSocket do servidor.")
 
     with lock:
         esp_ws = ws
@@ -1277,6 +1597,18 @@ def websocket_esp32(ws):
                 mensagem,
                 flush=True
             )
+
+            # LOG ENVIADO PELA ESP32
+            if mensagem.startswith("LOG|"):
+                partes_log = mensagem.split("|", 2)
+
+                if len(partes_log) == 3:
+                    adicionar_log_esp32(
+                        partes_log[1],
+                        partes_log[2]
+                    )
+
+                continue
 
             # PING
 
@@ -1311,6 +1643,7 @@ def websocket_esp32(ws):
                         audio_id,
                         flush=True
                     )
+                    adicionar_log_esp32("OK", f"ESP32 confirmou o áudio WAV {audio_id}.")
 
     except Exception as erro:
 
@@ -1331,6 +1664,7 @@ def websocket_esp32(ws):
             ">>> WEBSOCKET DA ESP32 ENCERRADO <<<",
             flush=True
         )
+        adicionar_log_esp32("AVISO", "WebSocket da ESP32 foi desconectado.")
 
 
 # =========================================================
