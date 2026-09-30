@@ -25,11 +25,6 @@ ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
 
-foto_pedido_recebido = False
-foto_pedido_recebido_em = None
-foto_recebida_servidor = False
-foto_recebida_servidor_em = None
-
 
 # =========================================================
 # ESTADO DA ESP32
@@ -183,13 +178,6 @@ button {
     color: white;
 }
 
-#tirarFotos {
-    background: #1f6feb;
-    color: white;
-    width: 100%;
-    margin-top: 12px;
-}
-
 button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -263,17 +251,6 @@ audio {
                 Grave um áudio para começar.
             </div>
 
-        </div>
-
-        <div class="audio-card" style="margin-top:20px;">
-            <h2>📸 Câmera ESP32</h2>
-            <button id="tirarFotos">📸 TIRAR FOTO</button>
-            <div id="mensagemFoto" class="detalhe">
-                Use o botão para solicitar uma foto.
-            </div>
-            <div class="detalhe">
-                <a href="/fotos" target="_blank" rel="noopener noreferrer" style="color:#58a6ff;">Ver fotos recebidas</a>
-            </div>
         </div>
 
     </div>
@@ -477,7 +454,7 @@ botaoEnviar.onclick = async function() {
         audioAtualId = dados.audio_id;
 
         mensagem.textContent =
-            "📡 WAV pronto. Aguardando a ESP32 confirmar que recebeu o pedido...";
+            "📡 WAV pronto. ESP32 avisada. Aguardando download...";
 
         verificarConfirmacao();
 
@@ -516,61 +493,18 @@ async function verificarConfirmacao() {
 
         const dados = await resposta.json();
 
-        if (dados.reproduzido === true) {
+        if (dados.recebido === true) {
 
             mensagem.textContent =
-                "✅ ÁUDIO REPRODUZIDO NO BLUETOOTH"
-                + (dados.reproduzido_em
-                    ? " • " + dados.reproduzido_em
-                    : "");
+                "✅ ÁUDIO WAV RECEBIDO PELA ESP32";
 
             botaoEnviar.disabled = false;
 
             return;
         }
 
-        if (dados.bluetooth_falhou === true) {
-
-            mensagem.textContent =
-                "⚠️ BLUETOOTH NÃO CONECTOU / APARELHO PODE ESTAR DESLIGADO"
-                + (dados.bluetooth_falhou_em ? " • " + dados.bluetooth_falhou_em : "")
-                + ". Ligue o Bluetooth e envie um novo áudio.";
-
-            botaoEnviar.disabled = false;
-            return;
-        }
-
-        if (dados.download_erro === true) {
-
-            mensagem.textContent =
-                "❌ ERRO AO BAIXAR O ÁUDIO NA ESP32. Grave outro áudio e envie novamente.";
-
-            botaoEnviar.disabled = false;
-            return;
-
-        } else if (dados.recebido === true) {
-
-            mensagem.textContent =
-                "🎧 WAV RECEBIDO. Aguardando reprodução no Bluetooth...";
-
-        } else if (dados.download_iniciado === true) {
-
-            mensagem.textContent =
-                "⬇️ ESP32 COMEÇOU O DOWNLOAD DO ÁUDIO"
-                + (dados.download_iniciado_em
-                    ? " • " + dados.download_iniciado_em
-                    : "");
-
-        } else if (dados.pedido_recebido === true) {
-
-            mensagem.textContent =
-                "✅ ESP32 RECEBEU O PEDIDO. Preparando para baixar o áudio...";
-
-        } else {
-
-            mensagem.textContent =
-                "📡 Aguardando a ESP32 confirmar que recebeu o pedido...";
-        }
+        mensagem.textContent =
+            "📡 Aguardando a ESP32 receber o WAV...";
 
         setTimeout(
             verificarConfirmacao,
@@ -584,85 +518,6 @@ async function verificarConfirmacao() {
             2000
         );
 
-    }
-}
-
-
-// ======================================================
-// COMANDO REMOTO - FOTO
-// ======================================================
-
-const botaoTirarFotos = document.getElementById("tirarFotos");
-const mensagemFoto = document.getElementById("mensagemFoto");
-
-botaoTirarFotos.onclick = async function() {
-
-    botaoTirarFotos.disabled = true;
-    mensagemFoto.textContent = "📡 Enviando comando para a ESP32...";
-
-    try {
-
-        const resposta = await fetch(
-            "/comando-foto",
-            {
-                method: "POST",
-                cache: "no-store"
-            }
-        );
-
-        const dados = await resposta.json();
-
-        if (!resposta.ok) {
-            mensagemFoto.textContent =
-                "❌ " + (dados.erro || "Falha ao enviar comando.");
-            botaoTirarFotos.disabled = false;
-            return;
-        }
-
-        mensagemFoto.textContent =
-            "📡 Comando enviado. Aguardando a ESP32 confirmar...";
-
-        verificarPedidoFoto();
-
-    } catch (erro) {
-
-        mensagemFoto.textContent =
-            "❌ Erro de comunicação com o servidor.";
-
-        botaoTirarFotos.disabled = false;
-    }
-};
-
-async function verificarPedidoFoto() {
-
-    try {
-        const resposta = await fetch(
-            "/foto-comando-status?t=" + Date.now(),
-            { cache: "no-store" }
-        );
-
-        const dados = await resposta.json();
-
-        if (dados.foto_recebida === true) {
-            mensagemFoto.textContent =
-                "✅ FOTO RECEBIDA PELO SERVIDOR"
-                + (dados.foto_recebida_em ? " • " + dados.foto_recebida_em : "");
-
-            botaoTirarFotos.disabled = false;
-            return;
-        }
-
-        if (dados.recebido === true) {
-            mensagemFoto.textContent =
-                "✅ ESP32 RECEBEU O PEDIDO DA FOTO"
-                + (dados.recebido_em ? " • " + dados.recebido_em : "")
-                + ". Agora é só aguardar a foto.";
-        }
-
-        setTimeout(verificarPedidoFoto, 500);
-
-    } catch (erro) {
-        setTimeout(verificarPedidoFoto, 1000);
     }
 }
 
@@ -855,17 +710,7 @@ def enviar_audio():
 
         audios[audio_id] = {
             "arquivo": caminho_wav,
-            "pedido_recebido": False,
-            "pedido_recebido_em": None,
-            "download_iniciado": False,
-            "download_iniciado_em": None,
-            "download_erro": False,
-            "download_erro_em": None,
-            "bluetooth_falhou": False,
-            "bluetooth_falhou_em": None,
             "recebido": False,
-            "reproduzido": False,
-            "reproduzido_em": None,
             "criado": time.time()
         }
 
@@ -935,12 +780,6 @@ def baixar_audio(audio_id):
             "erro": "Arquivo não existe."
         }), 404
 
-    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-    with lock:
-        if audio_id in audios:
-            audios[audio_id]["download_iniciado"] = True
-            audios[audio_id]["download_iniciado_em"] = horario
-
     print(
         ">>> ESP32 INICIOU DOWNLOAD DO WAV:",
         audio_id,
@@ -953,23 +792,6 @@ def baixar_audio(audio_id):
         as_attachment=False,
         download_name="audio.wav"
     )
-
-
-# =========================================================
-# ESP32 AVISA QUE O DOWNLOAD FALHOU
-# =========================================================
-
-@app.route("/audio-download-erro/<audio_id>", methods=["GET"])
-def audio_download_erro(audio_id):
-    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-
-    with lock:
-        if audio_id in audios:
-            audios[audio_id]["download_erro"] = True
-            audios[audio_id]["download_erro_em"] = horario
-
-    print(">>> ESP32 INFORMOU ERRO NO DOWNLOAD:", audio_id, flush=True)
-    return jsonify({"ok": True})
 
 
 # =========================================================
@@ -989,94 +811,7 @@ def audio_status(audio_id):
         })
 
     return jsonify({
-        "pedido_recebido": dados.get("pedido_recebido", False),
-        "pedido_recebido_em": dados.get("pedido_recebido_em"),
-        "download_iniciado": dados.get("download_iniciado", False),
-        "download_iniciado_em": dados.get("download_iniciado_em"),
-        "download_erro": dados.get("download_erro", False),
-        "download_erro_em": dados.get("download_erro_em"),
-        "bluetooth_falhou": dados.get("bluetooth_falhou", False),
-        "bluetooth_falhou_em": dados.get("bluetooth_falhou_em"),
-        "recebido": dados["recebido"],
-        "reproduzido": dados.get("reproduzido", False),
-        "reproduzido_em": dados.get("reproduzido_em")
-    })
-
-
-# =========================================================
-# COMANDO REMOTO PARA TIRAR 5 FOTOS
-# =========================================================
-
-@app.route("/comando-foto", methods=["POST"])
-def comando_foto():
-
-    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em, foto_recebida_servidor, foto_recebida_servidor_em
-
-    if not esp_esta_online():
-        return jsonify({
-            "ok": False,
-            "erro": "ESP32 esta desconectada."
-        }), 503
-
-    with lock:
-        socket_atual = esp_ws
-
-    if socket_atual is None:
-        return jsonify({
-            "ok": False,
-            "erro": "WebSocket da ESP32 nao esta disponivel."
-        }), 503
-
-    try:
-        with lock:
-            foto_pedido_recebido = False
-            foto_pedido_recebido_em = None
-            foto_recebida_servidor = False
-            foto_recebida_servidor_em = None
-
-        socket_atual.send("TIRAR_FOTOS")
-
-        print(
-            "SERVIDOR -> ESP32: TIRAR_FOTOS",
-            flush=True
-        )
-
-        return jsonify({
-            "ok": True,
-            "comando": "TIRAR_FOTOS"
-        })
-
-    except Exception as erro:
-
-        print(
-            "ERRO AO ENVIAR COMANDO DE FOTO:",
-            erro,
-            flush=True
-        )
-
-        return jsonify({
-            "ok": False,
-            "erro": "Falha ao enviar comando para a ESP32."
-        }), 500
-
-
-# =========================================================
-# STATUS DO PEDIDO DE FOTO
-# =========================================================
-
-@app.route("/foto-comando-status")
-def foto_comando_status():
-    with lock:
-        recebido = foto_pedido_recebido
-        horario = foto_pedido_recebido_em
-        foto_chegou = foto_recebida_servidor
-        foto_chegou_em = foto_recebida_servidor_em
-
-    return jsonify({
-        "recebido": recebido,
-        "recebido_em": horario,
-        "foto_recebida": foto_chegou,
-        "foto_recebida_em": foto_chegou_em
+        "recebido": dados["recebido"]
     })
 
 
@@ -1087,7 +822,7 @@ def foto_comando_status():
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
 
-    global esp_ws, foto_pedido_recebido, foto_pedido_recebido_em
+    global esp_ws
 
     print(
         "================================",
@@ -1140,52 +875,6 @@ def websocket_esp32(ws):
 
                 ws.send("PRONTO_OK")
 
-            # ESP32 RECEBEU O PEDIDO DO AUDIO
-
-            elif mensagem.startswith("AUDIO_PEDIDO_RECEBIDO|"):
-
-                partes = mensagem.split("|", 1)
-
-                if len(partes) == 2:
-                    audio_id = partes[1]
-                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-
-                    with lock:
-                        if audio_id in audios:
-                            audios[audio_id]["pedido_recebido"] = True
-                            audios[audio_id]["pedido_recebido_em"] = horario
-
-                    print(">>> ESP32 CONFIRMOU PEDIDO DO AUDIO:", audio_id, flush=True)
-
-            # DOWNLOAD DO AUDIO INICIADO (compatibilidade)
-
-            elif mensagem.startswith("AUDIO_DOWNLOAD_INICIADO|"):
-
-                partes = mensagem.split("|", 1)
-
-                if len(partes) == 2:
-                    audio_id = partes[1]
-                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-
-                    with lock:
-                        if audio_id in audios:
-                            audios[audio_id]["download_iniciado"] = True
-                            audios[audio_id]["download_iniciado_em"] = horario
-
-                    print(">>> DOWNLOAD DO AUDIO INICIADO:", audio_id, flush=True)
-
-            # PEDIDO DE FOTO RECEBIDO
-
-            elif mensagem == "FOTO_PEDIDO_RECEBIDO":
-
-                horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-
-                with lock:
-                    foto_pedido_recebido = True
-                    foto_pedido_recebido_em = horario
-
-                print(">>> ESP32 CONFIRMOU PEDIDO DE FOTO <<<", flush=True)
-
             # AUDIO RECEBIDO
 
             elif mensagem.startswith("AUDIO_RECEBIDO|"):
@@ -1205,50 +894,6 @@ def websocket_esp32(ws):
                     print(
                         ">>> WAV CONFIRMADO PELA ESP32:",
                         audio_id,
-                        flush=True
-                    )
-
-            # AUDIO REPRODUZIDO NO BLUETOOTH
-
-            elif mensagem.startswith("BLUETOOTH_FALHOU|"):
-
-                partes = mensagem.split("|", 1)
-
-                if len(partes) == 2:
-                    audio_id = partes[1]
-                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-
-                    with lock:
-                        if audio_id in audios:
-                            audios[audio_id]["bluetooth_falhou"] = True
-                            audios[audio_id]["bluetooth_falhou_em"] = horario
-
-                    print(
-                        ">>> ESP32 INFORMOU FALHA NO BLUETOOTH:",
-                        audio_id,
-                        flush=True
-                    )
-
-            elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
-
-                partes = mensagem.split("|", 1)
-
-                if len(partes) == 2:
-
-                    audio_id = partes[1]
-                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
-
-                    with lock:
-
-                        if audio_id in audios:
-                            audios[audio_id]["reproduzido"] = True
-                            audios[audio_id]["reproduzido_em"] = horario
-
-                    print(
-                        ">>> AUDIO REPRODUZIDO NO BLUETOOTH:",
-                        audio_id,
-                        "|",
-                        horario,
                         flush=True
                     )
 
@@ -1283,330 +928,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=5000
     )
-
-# =========================================================
-# ADICAO - FOTOS DA ESP32
-# =========================================================
-# O codigo original acima nao foi alterado.
-# Esta secao apenas adiciona:
-#   POST /enviar-foto
-#   GET  /foto/<sequencia>/<foto>
-#   GET  /fotos
-#   GET  /fotos-status
-# =========================================================
-
-from datetime import datetime, timezone, timedelta
-
-FOTO_DIR = "/tmp/fotos"
-os.makedirs(FOTO_DIR, exist_ok=True)
-
-FUSO_BRASIL = timezone(timedelta(hours=-3))
-
-lock_fotos = threading.Lock()
-sequencias_fotos = {}
-contador_sequencia_fotos = 0
-
-
-def agora_brasilia():
-    return datetime.now(FUSO_BRASIL)
-
-
-@app.route("/enviar-foto", methods=["POST"])
-def receber_foto():
-
-    global contador_sequencia_fotos
-
-    try:
-        numero_foto = int(request.args.get("foto", "0"))
-    except ValueError:
-        numero_foto = 0
-
-    if numero_foto < 1 or numero_foto > 5:
-        return jsonify({
-            "ok": False,
-            "erro": "O parametro foto deve ser de 1 a 5."
-        }), 400
-
-    agora = agora_brasilia()
-    sequencia_param = request.args.get("sequencia")
-
-    # A primeira foto, sem sequencia, cria uma nova sequencia.
-    if numero_foto == 1 and not sequencia_param:
-
-        with lock_fotos:
-            contador_sequencia_fotos += 1
-            numero_sequencia = contador_sequencia_fotos
-
-            sequencias_fotos[numero_sequencia] = {
-                "inicio": agora.strftime("%d/%m/%Y %H:%M:%S"),
-                "fotos": {}
-            }
-
-    else:
-
-        try:
-            numero_sequencia = int(sequencia_param)
-        except (TypeError, ValueError):
-            return jsonify({
-                "ok": False,
-                "erro": "Sequencia ausente ou invalida."
-            }), 400
-
-        with lock_fotos:
-            if numero_sequencia not in sequencias_fotos:
-                return jsonify({
-                    "ok": False,
-                    "erro": "Sequencia nao encontrada."
-                }), 404
-
-    # Aceita JPEG cru ou multipart/form-data com campo chamado foto.
-    if "foto" in request.files:
-        imagem = request.files["foto"].read()
-    else:
-        imagem = request.get_data()
-
-    if not imagem:
-        return jsonify({
-            "ok": False,
-            "erro": "Nenhuma imagem recebida."
-        }), 400
-
-    # Assinatura inicial de um JPEG.
-    if len(imagem) < 2 or imagem[:2] != b"\xff\xd8":
-        return jsonify({
-            "ok": False,
-            "erro": "A imagem recebida nao parece ser JPEG."
-        }), 400
-
-    pasta = os.path.join(
-        FOTO_DIR,
-        "sequencia_" + str(numero_sequencia)
-    )
-
-    os.makedirs(pasta, exist_ok=True)
-
-    caminho = os.path.join(
-        pasta,
-        "foto_" + str(numero_foto) + ".jpg"
-    )
-
-    with open(caminho, "wb") as arquivo:
-        arquivo.write(imagem)
-
-    horario = agora.strftime("%d/%m/%Y %H:%M:%S")
-
-    # A foto já foi validada e gravada em disco. Portanto este é o ponto
-    # confiável para dizer à interface que ela realmente chegou ao servidor.
-    global foto_recebida_servidor, foto_recebida_servidor_em
-
-    with lock:
-        foto_recebida_servidor = True
-        foto_recebida_servidor_em = horario
-
-    with lock_fotos:
-
-        sequencias_fotos[numero_sequencia]["fotos"][numero_foto] = {
-            "arquivo": caminho,
-            "horario": horario,
-            "tamanho": len(imagem)
-        }
-
-        quantidade = len(
-            sequencias_fotos[numero_sequencia]["fotos"]
-        )
-
-    print(
-        ">>> FOTO "
-        + str(numero_foto)
-        + "/5 | SEQUENCIA #"
-        + str(numero_sequencia)
-        + " | "
-        + horario
-        + " | "
-        + str(len(imagem))
-        + " bytes",
-        flush=True
-    )
-
-    return jsonify({
-        "ok": True,
-        "sequencia": numero_sequencia,
-        "foto": numero_foto,
-        "horario": horario,
-        "recebidas": quantidade,
-        "completa": quantidade >= 5
-    })
-
-
-@app.route("/foto/<int:numero_sequencia>/<int:numero_foto>")
-def mostrar_foto(numero_sequencia, numero_foto):
-
-    with lock_fotos:
-
-        sequencia = sequencias_fotos.get(numero_sequencia)
-
-        if sequencia is None:
-            return "Sequencia nao encontrada.", 404
-
-        foto = sequencia["fotos"].get(numero_foto)
-
-        if foto is None:
-            return "Foto nao encontrada.", 404
-
-        caminho = foto["arquivo"]
-
-    if not os.path.exists(caminho):
-        return "Arquivo nao encontrado.", 404
-
-    return send_file(
-        caminho,
-        mimetype="image/jpeg",
-        as_attachment=False
-    )
-
-
-@app.route("/fotos-status")
-def fotos_status():
-
-    with lock_fotos:
-
-        lista = []
-
-        for numero_sequencia in sorted(sequencias_fotos.keys(), reverse=True):
-
-            sequencia = sequencias_fotos[numero_sequencia]
-
-            lista.append({
-                "sequencia": numero_sequencia,
-                "inicio": sequencia["inicio"],
-                "quantidade": len(sequencia["fotos"]),
-                "completa": len(sequencia["fotos"]) >= 5
-            })
-
-    return jsonify({
-        "ok": True,
-        "sequencias": lista
-    })
-
-
-@app.route("/fotos")
-def pagina_fotos():
-
-    # Esta pagina foi montada sem strings de tres aspas.
-    # Assim evitamos o problema anterior de HTML sair da string Python.
-
-    partes = []
-
-    partes.append("<!DOCTYPE html>")
-    partes.append("<html lang='pt-BR'>")
-    partes.append("<head>")
-    partes.append("<meta charset='UTF-8'>")
-    partes.append("<meta name='viewport' content='width=device-width, initial-scale=1.0'>")
-    partes.append("<meta http-equiv='refresh' content='2'>")
-    partes.append("<title>Fotos ESP32</title>")
-
-    partes.append("<style>")
-    partes.append("body{margin:0;background:#0d1117;color:#e6edf3;font-family:Arial,sans-serif;padding:30px 16px;}")
-    partes.append(".container{max-width:1000px;margin:auto;}")
-    partes.append(".seq{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;margin:0 0 22px 0;}")
-    partes.append(".info{color:#8b949e;margin-bottom:15px;}")
-    partes.append(".grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,180px));gap:12px;justify-content:start;}")
-    partes.append(".foto{background:#0d1117;border:1px solid #30363d;border-radius:10px;overflow:hidden;}")
-    partes.append(".foto img{width:100%;height:135px;object-fit:cover;display:block;cursor:zoom-in;}")
-    partes.append(".texto{padding:11px;line-height:1.5;}")
-    partes.append(".hora{color:#8b949e;font-size:14px;}")
-    partes.append(".vazio{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;color:#8b949e;}")
-    partes.append("</style>")
-
-    partes.append("</head>")
-    partes.append("<body>")
-    partes.append("<div class='container'>")
-    partes.append("<h1>Fotos da ESP32</h1>")
-    partes.append("<div class='info'>Atualizacao automatica a cada 2 segundos. Clique em uma foto para abrir grande em nova aba.</div>")
-
-    with lock_fotos:
-
-        numeros = sorted(sequencias_fotos.keys(), reverse=True)
-
-        if not numeros:
-
-            partes.append(
-                "<div class='vazio'>Nenhuma foto recebida ainda.</div>"
-            )
-
-        else:
-
-            # Ordem decrescente: a sequencia mais nova aparece primeiro.
-            for numero_sequencia in numeros:
-
-                sequencia = sequencias_fotos[numero_sequencia]
-                fotos = sequencia["fotos"]
-
-                partes.append("<div class='seq'>")
-
-                partes.append(
-                    "<h2>Sequencia #"
-                    + str(numero_sequencia)
-                    + "</h2>"
-                )
-
-                partes.append(
-                    "<div class='info'>Inicio: "
-                    + sequencia["inicio"]
-                    + " | "
-                    + str(len(fotos))
-                    + "/5 fotos recebidas</div>"
-                )
-
-                partes.append("<div class='grade'>")
-
-                for numero_foto in sorted(fotos.keys(), reverse=True):
-
-                    foto = fotos[numero_foto]
-
-                    url = (
-                        "/foto/"
-                        + str(numero_sequencia)
-                        + "/"
-                        + str(numero_foto)
-                    )
-
-                    partes.append("<div class='foto'>")
-
-                    partes.append(
-                        "<a href='"
-                        + url
-                        + "' target='_blank' rel='noopener noreferrer' title='Abrir foto grande em nova aba'>"
-                        + "<img src='"
-                        + url
-                        + "' alt='Foto "
-                        + str(numero_foto)
-                        + "'>"
-                        + "</a>"
-                    )
-
-                    partes.append("<div class='texto'>")
-
-                    partes.append(
-                        "<strong>Foto "
-                        + str(numero_foto)
-                        + "/5</strong>"
-                    )
-
-                    partes.append(
-                        "<div class='hora'>Recebida: "
-                        + foto["horario"]
-                        + "</div>"
-                    )
-
-                    partes.append("</div>")
-                    partes.append("</div>")
-
-                partes.append("</div>")
-                partes.append("</div>")
-
-    partes.append("</div>")
-    partes.append("</body>")
-    partes.append("</html>")
-
-    return "\n".join(partes)
