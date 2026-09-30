@@ -17,6 +17,9 @@ sock = Sock(app)
 AUDIO_DIR = "/tmp/audios"
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
+FOTO_DIR = "/tmp/fotos"
+os.makedirs(FOTO_DIR, exist_ok=True)
+
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 lock = threading.Lock()
@@ -24,6 +27,14 @@ lock = threading.Lock()
 ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
+
+foto_status = {
+    "pedido_recebido": False,
+    "salva_sd": False,
+    "tamanho": 0,
+    "erro": None,
+    "atualizado": 0.0
+}
 
 
 # =========================================================
@@ -225,6 +236,22 @@ audio {
 
         </div>
 
+        <div class="audio-card" style="margin-bottom:25px;">
+
+            <h2>📷 Câmera OV5640 5 MP</h2>
+
+            <div class="botoes">
+                <button id="tirarFoto" style="background:#1f6feb;color:white;">
+                    📷 TIRAR FOTO
+                </button>
+            </div>
+
+            <div id="fotoMensagem" style="margin-top:20px;padding:15px;border-radius:8px;background:#161b22;min-height:52px;line-height:1.4;">
+                Aguardando pedido de foto.
+            </div>
+
+        </div>
+
         <div class="audio-card">
 
             <h2>🎙️ Enviar áudio</h2>
@@ -317,6 +344,94 @@ async function atualizarESP() {
 atualizarESP();
 
 setInterval(atualizarESP, 2000);
+
+
+
+// ======================================================
+// CAMERA - ETAPA 1/2
+// ======================================================
+
+const botaoTirarFoto = document.getElementById("tirarFoto");
+const fotoMensagem = document.getElementById("fotoMensagem");
+
+botaoTirarFoto.onclick = async function() {
+
+    botaoTirarFoto.disabled = true;
+    fotoMensagem.textContent = "📡 Enviando pedido de foto para a ESP32...";
+
+    try {
+        const resposta = await fetch(
+            "/pedir-foto",
+            {
+                method: "POST",
+                cache: "no-store"
+            }
+        );
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            fotoMensagem.textContent =
+                "❌ " + (dados.erro || "Falha ao pedir foto.");
+            botaoTirarFoto.disabled = false;
+            return;
+        }
+
+        fotoMensagem.textContent =
+            "📡 Pedido enviado. Aguardando a ESP32 confirmar...";
+
+        verificarFoto();
+
+    } catch (erro) {
+        fotoMensagem.textContent =
+            "❌ Erro de comunicação ao pedir a foto.";
+        botaoTirarFoto.disabled = false;
+    }
+};
+
+
+async function verificarFoto() {
+
+    try {
+        const resposta = await fetch(
+            "/foto-status?t=" + Date.now(),
+            { cache: "no-store" }
+        );
+
+        const dados = await resposta.json();
+
+        if (dados.erro) {
+            fotoMensagem.textContent = "❌ " + dados.erro;
+            botaoTirarFoto.disabled = false;
+            return;
+        }
+
+        if (dados.recebida_servidor === true) {
+            fotoMensagem.innerHTML =
+                "✅ FOTO NOVA RECEBIDA E CONFIRMADA PELO SERVIDOR: "
+                + dados.tamanho
+                + " bytes. "
+                + '<a href="/foto-atual?t=' + Date.now() + '" target="_blank" rel="noopener noreferrer">Abrir foto</a>';
+            botaoTirarFoto.disabled = false;
+            return;
+        }
+
+        if (dados.salva_sd === true) {
+            fotoMensagem.textContent =
+                "📷 Foto salva no SD. ESP32 reiniciando para enviar...";
+        }
+
+        if (dados.pedido_recebido === true) {
+            fotoMensagem.textContent =
+                "✅ ESP32 RECEBEU O PEDIDO. Limpando /fotos e capturando uma foto NOVA...";
+        }
+
+        setTimeout(verificarFoto, 800);
+
+    } catch (erro) {
+        setTimeout(verificarFoto, 1500);
+    }
+}
 
 
 // ======================================================
@@ -815,6 +930,141 @@ def audio_status(audio_id):
     })
 
 
+
+# =========================================================
+# CAMERA - ETAPA 1/2
+# =========================================================
+
+@app.route("/enviar-foto", methods=["POST"])
+def receber_foto():
+
+    dados = request.get_data(cache=False)
+
+    if not dados:
+        return jsonify({
+            "erro": "Foto vazia."
+        }), 400
+
+    # Um único arquivo atual no servidor para este teste.
+    caminho = os.path.join(FOTO_DIR, "foto_atual.jpg")
+    temporario = caminho + ".tmp"
+
+    try:
+        with open(temporario, "wb") as arquivo:
+            arquivo.write(dados)
+            arquivo.flush()
+
+        tamanho_salvo = os.path.getsize(temporario)
+
+        if tamanho_salvo != len(dados):
+            try:
+                os.remove(temporario)
+            except Exception:
+                pass
+
+            return jsonify({
+                "erro": "Tamanho salvo não confere."
+            }), 500
+
+        os.replace(temporario, caminho)
+
+        with lock:
+            foto_status["salva_sd"] = True
+            foto_status["tamanho"] = tamanho_salvo
+            foto_status["erro"] = None
+            foto_status["atualizado"] = time.time()
+            foto_status["recebida_servidor"] = True
+
+        print(
+            ">>> FOTO RECEBIDA E CONFIRMADA PELO SERVIDOR:",
+            tamanho_salvo,
+            "bytes <<<",
+            flush=True
+        )
+
+        # Só responde 200 DEPOIS de gravar e conferir.
+        return jsonify({
+            "ok": True,
+            "tamanho": tamanho_salvo
+        }), 200
+
+    except Exception as erro:
+        print("ERRO RECEBENDO FOTO:", erro, flush=True)
+
+        try:
+            if os.path.exists(temporario):
+                os.remove(temporario)
+        except Exception:
+            pass
+
+        return jsonify({
+            "erro": "Falha ao salvar a foto."
+        }), 500
+
+
+@app.route("/foto-atual")
+def foto_atual():
+
+    caminho = os.path.join(FOTO_DIR, "foto_atual.jpg")
+
+    if not os.path.exists(caminho):
+        return jsonify({
+            "erro": "Nenhuma foto recebida."
+        }), 404
+
+    return send_file(
+        caminho,
+        mimetype="image/jpeg",
+        as_attachment=False
+    )
+
+
+@app.route("/pedir-foto", methods=["POST"])
+def pedir_foto():
+
+    global esp_ws
+
+    if not esp_esta_online():
+        return jsonify({
+            "erro": "ESP32 está desconectada."
+        }), 503
+
+    with lock:
+        foto_status["pedido_recebido"] = False
+        foto_status["salva_sd"] = False
+        foto_status["tamanho"] = 0
+        foto_status["erro"] = None
+        foto_status["recebida_servidor"] = False
+        foto_status["atualizado"] = time.time()
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({
+            "erro": "Canal da ESP32 não está disponível."
+        }), 503
+
+    try:
+        socket_atual.send("TIRAR_FOTO")
+        print("SERVIDOR -> ESP32: TIRAR_FOTO", flush=True)
+
+    except Exception as erro:
+        print("ERRO PEDINDO FOTO:", erro, flush=True)
+        return jsonify({
+            "erro": "Falha ao enviar o pedido de foto para a ESP32."
+        }), 500
+
+    return jsonify({"ok": True})
+
+
+@app.route("/foto-status")
+def consultar_foto_status():
+
+    with lock:
+        dados = dict(foto_status)
+
+    return jsonify(dados)
+
+
 # =========================================================
 # WEBSOCKET
 # =========================================================
@@ -874,6 +1124,59 @@ def websocket_esp32(ws):
             elif mensagem == "PRONTO":
 
                 ws.send("PRONTO_OK")
+
+            # FOTO - PEDIDO RECEBIDO
+
+            elif mensagem == "PEDIDO_FOTO_RECEBIDO":
+
+                with lock:
+                    foto_status["pedido_recebido"] = True
+                    foto_status["atualizado"] = time.time()
+
+                print(
+                    ">>> ESP32 CONFIRMOU PEDIDO DE FOTO <<<",
+                    flush=True
+                )
+
+            # FOTO - SALVA NO SD
+
+            elif mensagem.startswith("FOTO_SALVA_SD|"):
+
+                partes = mensagem.split("|", 1)
+
+                tamanho_foto = 0
+
+                if len(partes) == 2:
+                    try:
+                        tamanho_foto = int(partes[1])
+                    except Exception:
+                        tamanho_foto = 0
+
+                with lock:
+                    foto_status["pedido_recebido"] = True
+                    foto_status["salva_sd"] = True
+                    foto_status["tamanho"] = tamanho_foto
+                    foto_status["erro"] = None
+                    foto_status["atualizado"] = time.time()
+
+                print(
+                    ">>> FOTO NOVA SALVA NO SD DA ESP32:",
+                    tamanho_foto,
+                    "bytes <<<",
+                    flush=True
+                )
+
+            elif mensagem == "FOTO_CAPTURA_ERRO":
+
+                with lock:
+                    foto_status["erro"] = "A ESP32 não conseguiu capturar/gravar a foto."
+                    foto_status["atualizado"] = time.time()
+
+            elif mensagem == "FOTO_LIMPEZA_ERRO":
+
+                with lock:
+                    foto_status["erro"] = "A ESP32 não conseguiu limpar a pasta /fotos."
+                    foto_status["atualizado"] = time.time()
 
             # AUDIO RECEBIDO
 
