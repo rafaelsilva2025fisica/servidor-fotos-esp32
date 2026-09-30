@@ -527,6 +527,29 @@ async function verificarConfirmacao() {
             return;
         }
 
+        if (dados.bluetooth_status === "resetando_apos_5_falhas") {
+            mensagem.textContent =
+                "🔄 Bluetooth não encontrado após 5 de 5. ESP32 reiniciando; o áudio será baixado novamente.";
+            setTimeout(verificarConfirmacao, 1000);
+            return;
+        }
+
+        if (dados.bluetooth_status === "nao_encontrado") {
+            mensagem.textContent =
+                "⚠️ Bluetooth não encontrado/conectado — tentativa "
+                + dados.bluetooth_tentativa + " de 5.";
+            setTimeout(verificarConfirmacao, 1000);
+            return;
+        }
+
+        if (dados.bluetooth_status === "reproducao_interrompida") {
+            mensagem.textContent =
+                "⚠️ Bluetooth interrompido — tentativa "
+                + dados.bluetooth_tentativa + " de 5.";
+            setTimeout(verificarConfirmacao, 1000);
+            return;
+        }
+
         if (dados.recebido === true) {
 
             mensagem.textContent =
@@ -825,6 +848,9 @@ def enviar_audio():
             "arquivo": caminho_wav,
             "download_iniciado": False,
             "download_iniciado_em": None,
+            "bluetooth_status": None,
+            "bluetooth_tentativa": 0,
+            "bluetooth_status_em": None,
             "recebido": False,
             "reproduzido": False,
             "reproduzido_em": None,
@@ -930,6 +956,9 @@ def audio_status(audio_id):
     return jsonify({
         "download_iniciado": dados.get("download_iniciado", False),
         "download_iniciado_em": dados.get("download_iniciado_em"),
+        "bluetooth_status": dados.get("bluetooth_status"),
+        "bluetooth_tentativa": dados.get("bluetooth_tentativa", 0),
+        "bluetooth_status_em": dados.get("bluetooth_status_em"),
         "recebido": dados["recebido"],
         "reproduzido": dados.get("reproduzido", False),
         "reproduzido_em": dados.get("reproduzido_em")
@@ -989,6 +1018,30 @@ def comando_foto():
             "ok": False,
             "erro": "Falha ao enviar comando para a ESP32."
         }), 500
+
+
+# =========================================================
+# STATUS BLUETOOTH DA ESP32
+# =========================================================
+@app.route("/esp-status-bluetooth")
+def esp_status_bluetooth():
+    audio_id = request.args.get("id", "")
+    estado = request.args.get("estado", "")
+    try:
+        tentativa = int(request.args.get("tentativa", "0"))
+    except Exception:
+        tentativa = 0
+
+    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+    with lock:
+        if audio_id in audios:
+            audios[audio_id]["bluetooth_status"] = estado
+            audios[audio_id]["bluetooth_tentativa"] = tentativa
+            audios[audio_id]["bluetooth_status_em"] = horario
+
+    print(">>> STATUS BLUETOOTH:", audio_id, estado, tentativa, flush=True)
+    return jsonify({"ok": True})
 
 
 # =========================================================
@@ -1081,6 +1134,9 @@ def websocket_esp32(ws):
                         if audio_id in audios:
                             audios[audio_id]["download_iniciado"] = True
                             audios[audio_id]["download_iniciado_em"] = horario
+                            audios[audio_id]["bluetooth_status"] = None
+                            audios[audio_id]["bluetooth_tentativa"] = 0
+                            audios[audio_id]["bluetooth_status_em"] = None
 
                     print(">>> DOWNLOAD DO AUDIO INICIADO:", audio_id, flush=True)
 
