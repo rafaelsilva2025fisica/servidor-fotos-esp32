@@ -178,6 +178,13 @@ button {
     color: white;
 }
 
+#tirarFotos {
+    background: #1f6feb;
+    color: white;
+    width: 100%;
+    margin-top: 12px;
+}
+
 button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -251,6 +258,17 @@ audio {
                 Grave um áudio para começar.
             </div>
 
+        </div>
+
+        <div class="audio-card" style="margin-top:20px;">
+            <h2>📸 Câmera ESP32</h2>
+            <button id="tirarFotos">📸 TIRAR FOTO</button>
+            <div id="mensagemFoto" class="detalhe">
+                Use o botão para solicitar uma foto.
+            </div>
+            <div class="detalhe">
+                <a href="/fotos" style="color:#58a6ff;">Ver fotos recebidas</a>
+            </div>
         </div>
 
     </div>
@@ -493,18 +511,29 @@ async function verificarConfirmacao() {
 
         const dados = await resposta.json();
 
-        if (dados.recebido === true) {
+        if (dados.reproduzido === true) {
 
             mensagem.textContent =
-                "✅ ÁUDIO WAV RECEBIDO PELA ESP32";
+                "✅ ÁUDIO REPRODUZIDO NO BLUETOOTH"
+                + (dados.reproduzido_em
+                    ? " • " + dados.reproduzido_em
+                    : "");
 
             botaoEnviar.disabled = false;
 
             return;
         }
 
-        mensagem.textContent =
-            "📡 Aguardando a ESP32 receber o WAV...";
+        if (dados.recebido === true) {
+
+            mensagem.textContent =
+                "🎧 WAV RECEBIDO. Aguardando reprodução no Bluetooth...";
+
+        } else {
+
+            mensagem.textContent =
+                "📡 Aguardando a ESP32 receber o WAV...";
+        }
 
         setTimeout(
             verificarConfirmacao,
@@ -520,6 +549,54 @@ async function verificarConfirmacao() {
 
     }
 }
+
+
+// ======================================================
+// COMANDO REMOTO - FOTO
+// ======================================================
+
+const botaoTirarFotos = document.getElementById("tirarFotos");
+const mensagemFoto = document.getElementById("mensagemFoto");
+
+botaoTirarFotos.onclick = async function() {
+
+    botaoTirarFotos.disabled = true;
+    mensagemFoto.textContent = "📡 Enviando comando para a ESP32...";
+
+    try {
+
+        const resposta = await fetch(
+            "/comando-foto",
+            {
+                method: "POST",
+                cache: "no-store"
+            }
+        );
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            mensagemFoto.textContent =
+                "❌ " + (dados.erro || "Falha ao enviar comando.");
+            botaoTirarFotos.disabled = false;
+            return;
+        }
+
+        mensagemFoto.textContent =
+            "✅ Comando enviado. A ESP32 vai tirar uma foto.";
+
+        setTimeout(function() {
+            botaoTirarFotos.disabled = false;
+        }, 2500);
+
+    } catch (erro) {
+
+        mensagemFoto.textContent =
+            "❌ Erro de comunicação com o servidor.";
+
+        botaoTirarFotos.disabled = false;
+    }
+};
 
 </script>
 
@@ -711,6 +788,8 @@ def enviar_audio():
         audios[audio_id] = {
             "arquivo": caminho_wav,
             "recebido": False,
+            "reproduzido": False,
+            "reproduzido_em": None,
             "criado": time.time()
         }
 
@@ -811,8 +890,61 @@ def audio_status(audio_id):
         })
 
     return jsonify({
-        "recebido": dados["recebido"]
+        "recebido": dados["recebido"],
+        "reproduzido": dados.get("reproduzido", False),
+        "reproduzido_em": dados.get("reproduzido_em")
     })
+
+
+# =========================================================
+# COMANDO REMOTO PARA TIRAR 5 FOTOS
+# =========================================================
+
+@app.route("/comando-foto", methods=["POST"])
+def comando_foto():
+
+    global esp_ws
+
+    if not esp_esta_online():
+        return jsonify({
+            "ok": False,
+            "erro": "ESP32 esta desconectada."
+        }), 503
+
+    with lock:
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({
+            "ok": False,
+            "erro": "WebSocket da ESP32 nao esta disponivel."
+        }), 503
+
+    try:
+        socket_atual.send("TIRAR_FOTOS")
+
+        print(
+            "SERVIDOR -> ESP32: TIRAR_FOTOS",
+            flush=True
+        )
+
+        return jsonify({
+            "ok": True,
+            "comando": "TIRAR_FOTOS"
+        })
+
+    except Exception as erro:
+
+        print(
+            "ERRO AO ENVIAR COMANDO DE FOTO:",
+            erro,
+            flush=True
+        )
+
+        return jsonify({
+            "ok": False,
+            "erro": "Falha ao enviar comando para a ESP32."
+        }), 500
 
 
 # =========================================================
@@ -897,6 +1029,31 @@ def websocket_esp32(ws):
                         flush=True
                     )
 
+            # AUDIO REPRODUZIDO NO BLUETOOTH
+
+            elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
+
+                partes = mensagem.split("|", 1)
+
+                if len(partes) == 2:
+
+                    audio_id = partes[1]
+                    horario = agora_brasilia().strftime("%d/%m/%Y %H:%M:%S")
+
+                    with lock:
+
+                        if audio_id in audios:
+                            audios[audio_id]["reproduzido"] = True
+                            audios[audio_id]["reproduzido_em"] = horario
+
+                    print(
+                        ">>> AUDIO REPRODUZIDO NO BLUETOOTH:",
+                        audio_id,
+                        "|",
+                        horario,
+                        flush=True
+                    )
+
     except Exception as erro:
 
         print(
@@ -928,3 +1085,322 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=5000
     )
+
+# =========================================================
+# ADICAO - FOTOS DA ESP32
+# =========================================================
+# O codigo original acima nao foi alterado.
+# Esta secao apenas adiciona:
+#   POST /enviar-foto
+#   GET  /foto/<sequencia>/<foto>
+#   GET  /fotos
+#   GET  /fotos-status
+# =========================================================
+
+from datetime import datetime, timezone, timedelta
+
+FOTO_DIR = "/tmp/fotos"
+os.makedirs(FOTO_DIR, exist_ok=True)
+
+FUSO_BRASIL = timezone(timedelta(hours=-3))
+
+lock_fotos = threading.Lock()
+sequencias_fotos = {}
+contador_sequencia_fotos = 0
+
+
+def agora_brasilia():
+    return datetime.now(FUSO_BRASIL)
+
+
+@app.route("/enviar-foto", methods=["POST"])
+def receber_foto():
+
+    global contador_sequencia_fotos
+
+    try:
+        numero_foto = int(request.args.get("foto", "0"))
+    except ValueError:
+        numero_foto = 0
+
+    if numero_foto < 1 or numero_foto > 5:
+        return jsonify({
+            "ok": False,
+            "erro": "O parametro foto deve ser de 1 a 5."
+        }), 400
+
+    agora = agora_brasilia()
+    sequencia_param = request.args.get("sequencia")
+
+    # A primeira foto, sem sequencia, cria uma nova sequencia.
+    if numero_foto == 1 and not sequencia_param:
+
+        with lock_fotos:
+            contador_sequencia_fotos += 1
+            numero_sequencia = contador_sequencia_fotos
+
+            sequencias_fotos[numero_sequencia] = {
+                "inicio": agora.strftime("%d/%m/%Y %H:%M:%S"),
+                "fotos": {}
+            }
+
+    else:
+
+        try:
+            numero_sequencia = int(sequencia_param)
+        except (TypeError, ValueError):
+            return jsonify({
+                "ok": False,
+                "erro": "Sequencia ausente ou invalida."
+            }), 400
+
+        with lock_fotos:
+            if numero_sequencia not in sequencias_fotos:
+                return jsonify({
+                    "ok": False,
+                    "erro": "Sequencia nao encontrada."
+                }), 404
+
+    # Aceita JPEG cru ou multipart/form-data com campo chamado foto.
+    if "foto" in request.files:
+        imagem = request.files["foto"].read()
+    else:
+        imagem = request.get_data()
+
+    if not imagem:
+        return jsonify({
+            "ok": False,
+            "erro": "Nenhuma imagem recebida."
+        }), 400
+
+    # Assinatura inicial de um JPEG.
+    if len(imagem) < 2 or imagem[:2] != b"\xff\xd8":
+        return jsonify({
+            "ok": False,
+            "erro": "A imagem recebida nao parece ser JPEG."
+        }), 400
+
+    pasta = os.path.join(
+        FOTO_DIR,
+        "sequencia_" + str(numero_sequencia)
+    )
+
+    os.makedirs(pasta, exist_ok=True)
+
+    caminho = os.path.join(
+        pasta,
+        "foto_" + str(numero_foto) + ".jpg"
+    )
+
+    with open(caminho, "wb") as arquivo:
+        arquivo.write(imagem)
+
+    horario = agora.strftime("%d/%m/%Y %H:%M:%S")
+
+    with lock_fotos:
+
+        sequencias_fotos[numero_sequencia]["fotos"][numero_foto] = {
+            "arquivo": caminho,
+            "horario": horario,
+            "tamanho": len(imagem)
+        }
+
+        quantidade = len(
+            sequencias_fotos[numero_sequencia]["fotos"]
+        )
+
+    print(
+        ">>> FOTO "
+        + str(numero_foto)
+        + "/5 | SEQUENCIA #"
+        + str(numero_sequencia)
+        + " | "
+        + horario
+        + " | "
+        + str(len(imagem))
+        + " bytes",
+        flush=True
+    )
+
+    return jsonify({
+        "ok": True,
+        "sequencia": numero_sequencia,
+        "foto": numero_foto,
+        "horario": horario,
+        "recebidas": quantidade,
+        "completa": quantidade >= 5
+    })
+
+
+@app.route("/foto/<int:numero_sequencia>/<int:numero_foto>")
+def mostrar_foto(numero_sequencia, numero_foto):
+
+    with lock_fotos:
+
+        sequencia = sequencias_fotos.get(numero_sequencia)
+
+        if sequencia is None:
+            return "Sequencia nao encontrada.", 404
+
+        foto = sequencia["fotos"].get(numero_foto)
+
+        if foto is None:
+            return "Foto nao encontrada.", 404
+
+        caminho = foto["arquivo"]
+
+    if not os.path.exists(caminho):
+        return "Arquivo nao encontrado.", 404
+
+    return send_file(
+        caminho,
+        mimetype="image/jpeg",
+        as_attachment=False
+    )
+
+
+@app.route("/fotos-status")
+def fotos_status():
+
+    with lock_fotos:
+
+        lista = []
+
+        for numero_sequencia in sorted(sequencias_fotos.keys(), reverse=True):
+
+            sequencia = sequencias_fotos[numero_sequencia]
+
+            lista.append({
+                "sequencia": numero_sequencia,
+                "inicio": sequencia["inicio"],
+                "quantidade": len(sequencia["fotos"]),
+                "completa": len(sequencia["fotos"]) >= 5
+            })
+
+    return jsonify({
+        "ok": True,
+        "sequencias": lista
+    })
+
+
+@app.route("/fotos")
+def pagina_fotos():
+
+    # Esta pagina foi montada sem strings de tres aspas.
+    # Assim evitamos o problema anterior de HTML sair da string Python.
+
+    partes = []
+
+    partes.append("<!DOCTYPE html>")
+    partes.append("<html lang='pt-BR'>")
+    partes.append("<head>")
+    partes.append("<meta charset='UTF-8'>")
+    partes.append("<meta name='viewport' content='width=device-width, initial-scale=1.0'>")
+    partes.append("<meta http-equiv='refresh' content='2'>")
+    partes.append("<title>Fotos ESP32</title>")
+
+    partes.append("<style>")
+    partes.append("body{margin:0;background:#0d1117;color:#e6edf3;font-family:Arial,sans-serif;padding:30px 16px;}")
+    partes.append(".container{max-width:1000px;margin:auto;}")
+    partes.append(".seq{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;margin:0 0 22px 0;}")
+    partes.append(".info{color:#8b949e;margin-bottom:15px;}")
+    partes.append(".grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,180px));gap:12px;justify-content:start;}")
+    partes.append(".foto{background:#0d1117;border:1px solid #30363d;border-radius:10px;overflow:hidden;}")
+    partes.append(".foto img{width:100%;height:135px;object-fit:cover;display:block;cursor:zoom-in;}")
+    partes.append(".texto{padding:11px;line-height:1.5;}")
+    partes.append(".hora{color:#8b949e;font-size:14px;}")
+    partes.append(".vazio{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;color:#8b949e;}")
+    partes.append("</style>")
+
+    partes.append("</head>")
+    partes.append("<body>")
+    partes.append("<div class='container'>")
+    partes.append("<h1>Fotos da ESP32</h1>")
+    partes.append("<div class='info'>Atualizacao automatica a cada 2 segundos. Clique em uma foto para abrir grande em nova aba.</div>")
+
+    with lock_fotos:
+
+        numeros = sorted(sequencias_fotos.keys(), reverse=True)
+
+        if not numeros:
+
+            partes.append(
+                "<div class='vazio'>Nenhuma foto recebida ainda.</div>"
+            )
+
+        else:
+
+            # Ordem decrescente: a sequencia mais nova aparece primeiro.
+            for numero_sequencia in numeros:
+
+                sequencia = sequencias_fotos[numero_sequencia]
+                fotos = sequencia["fotos"]
+
+                partes.append("<div class='seq'>")
+
+                partes.append(
+                    "<h2>Sequencia #"
+                    + str(numero_sequencia)
+                    + "</h2>"
+                )
+
+                partes.append(
+                    "<div class='info'>Inicio: "
+                    + sequencia["inicio"]
+                    + " | "
+                    + str(len(fotos))
+                    + "/5 fotos recebidas</div>"
+                )
+
+                partes.append("<div class='grade'>")
+
+                for numero_foto in sorted(fotos.keys(), reverse=True):
+
+                    foto = fotos[numero_foto]
+
+                    url = (
+                        "/foto/"
+                        + str(numero_sequencia)
+                        + "/"
+                        + str(numero_foto)
+                    )
+
+                    partes.append("<div class='foto'>")
+
+                    partes.append(
+                        "<a href='"
+                        + url
+                        + "' target='_blank' rel='noopener noreferrer' title='Abrir foto grande em nova aba'>"
+                        + "<img src='"
+                        + url
+                        + "' alt='Foto "
+                        + str(numero_foto)
+                        + "'>"
+                        + "</a>"
+                    )
+
+                    partes.append("<div class='texto'>")
+
+                    partes.append(
+                        "<strong>Foto "
+                        + str(numero_foto)
+                        + "/5</strong>"
+                    )
+
+                    partes.append(
+                        "<div class='hora'>Recebida: "
+                        + foto["horario"]
+                        + "</div>"
+                    )
+
+                    partes.append("</div>")
+                    partes.append("</div>")
+
+                partes.append("</div>")
+                partes.append("</div>")
+
+    partes.append("</div>")
+    partes.append("</body>")
+    partes.append("</html>")
+
+    return "\n".join(partes)
