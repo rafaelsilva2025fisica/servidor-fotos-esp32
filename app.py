@@ -1482,7 +1482,11 @@ def processar_foto_recebida_automaticamente(caminho_foto, nome_foto):
             adicionar_log_esp32("ERRO", f"IA não conseguiu analisar a foto: {erro}")
             return
 
-        adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {inicio.get('quantidade', 0)}")
+        qtd = inicio.get('quantidade', 0)
+        if qtd:
+            adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {qtd}")
+        else:
+            adicionar_log_ia("FOTO", "Foto analisada como imagem geral; nenhum exercício legível identificado.")
         adicionar_log_ia("LEITURA", inicio.get("menu", ""))
 
         adicionar_log_ia("ÁUDIO", "Criando o áudio da leitura inicial...")
