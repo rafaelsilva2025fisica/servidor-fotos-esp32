@@ -9,7 +9,7 @@ import imageio_ffmpeg
 from datetime import datetime
 from teste_openai_web import teste_openai_bp
 from teste_audio_web import teste_audio_bp
-from teste_controle_web import teste_controle_bp
+from teste_controle_web import teste_controle_bp, interpretar_cliques, zerar_sessao, ESTADO as ESTADO_CONTROLE, LOCK as LOCK_CONTROLE, _menu_apos_exercicio, _gerar_tts
 
 app = Flask(__name__)
 
@@ -1557,6 +1557,61 @@ def arquivo_galeria(nome):
     return send_from_directory(PASTA_GALERIA, nome)
 
 # =========================================================
+# CEREBRO DE CLIQUES -> AUDIO PARA ESP32
+# =========================================================
+def preparar_audio_tts_para_esp(texto):
+    """Gera TTS, converte para o WAV esperado pela ESP32 e registra em audios."""
+    audio_id = "ia_" + uuid.uuid4().hex[:12]
+    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + ".mp3")
+    caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
+
+    dados_mp3 = _gerar_tts(texto)
+    with open(caminho_mp3, "wb") as f:
+        f.write(dados_mp3)
+
+    comando_ffmpeg = [
+        FFMPEG, "-y", "-i", caminho_mp3, "-vn",
+        "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", caminho_wav
+    ]
+    resultado = subprocess.run(comando_ffmpeg, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    try:
+        os.remove(caminho_mp3)
+    except Exception:
+        pass
+    if resultado.returncode != 0 or not os.path.exists(caminho_wav):
+        raise RuntimeError("Falha ao converter TTS para WAV.")
+
+    with lock:
+        audios[audio_id] = {"arquivo": caminho_wav, "recebido": False, "criado": time.time()}
+    return audio_id
+
+
+def executar_escolha_fisica(ws, quantidade):
+    """Interpreta CLIQUES|N usando exatamente o mesmo menu da bancada."""
+    resultado = interpretar_cliques(quantidade)
+    if not resultado.get("ok"):
+        adicionar_log_esp32("AVISO", "Cliques sem opção válida: " + str(resultado.get("erro")))
+        return
+
+    if resultado.get("acao") == "nova_foto":
+        zerar_sessao()
+        adicionar_log_esp32("INFO", "Opção física escolhida: nova foto. Sessão zerada.")
+        ws.send("TIRAR_FOTO")
+        return
+
+    num = resultado["exercicio"]
+    with LOCK_CONTROLE:
+        texto_base = ESTADO_CONTROLE["roteiros"][num]
+        menu_final, _ = _menu_apos_exercicio(num, ESTADO_CONTROLE["roteiros"])
+    texto = texto_base + "\n\n" + menu_final
+
+    adicionar_log_esp32("INFO", f"Cliques escolheram exercício {num}. Gerando áudio...")
+    audio_id = preparar_audio_tts_para_esp(texto)
+    ws.send("NOVO_AUDIO|" + audio_id)
+    adicionar_log_esp32("OK", f"Áudio do exercício {num} enviado para a ESP32: {audio_id}")
+
+
+# =========================================================
 # WEBSOCKET
 # =========================================================
 
@@ -1615,6 +1670,24 @@ def websocket_esp32(ws):
                         partes_log[2]
                     )
 
+                continue
+
+            # CLIQUES DO BOTAO FISICO
+            if mensagem.startswith("CLIQUES|"):
+                try:
+                    quantidade = int(mensagem.split("|", 1)[1])
+                except Exception:
+                    quantidade = -1
+
+                # Primeiro confirma o recebimento. A ESP32 só então apaga o TXT pendente.
+                ws.send("CLIQUES_OK")
+                adicionar_log_esp32("OK", f"CLIQUES|{quantidade} recebido e confirmado.")
+
+                if quantidade > 0:
+                    try:
+                        executar_escolha_fisica(ws, quantidade)
+                    except Exception as erro:
+                        adicionar_log_esp32("ERRO", f"Falha processando escolha física: {type(erro).__name__}: {erro}")
                 continue
 
             # PING
