@@ -1684,7 +1684,7 @@ def api_log_ia():
 
 @app.route("/log-ia")
 def pagina_log_ia():
-    return Response(r"""<!doctype html>
+    return app.response_class(r"""<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
