@@ -120,6 +120,30 @@ def interpretar_cliques(n):
     with LOCK:
         if not ESTADO['preparado']:
             return {'ok':False,'erro':'Nenhuma prova preparada.'}
+
+        # 0 cliques = nenhuma escolha: repetir somente o último MENU falado.
+        # No menu inicial, repete a leitura geral da foto + opções.
+        # Depois de um exercício, repete somente o menu de opções daquele exercício.
+        if n == 0:
+            ESTADO['ultima_escolha'] = 0
+            audio_atual = ESTADO.get('audio_atual', 'menu')
+            if audio_atual == 'menu':
+                texto_menu = ESTADO['menu_texto']
+                ESTADO['opcoes'] = _opcoes_iniciais(ESTADO['roteiros'])
+                return {'ok':True,'acao':'repetir_menu','cliques':0,'texto':texto_menu,'menu':'inicial','novas_opcoes':ESTADO['opcoes']}
+
+            try:
+                exercicio_atual = int(str(audio_atual).split('_', 1)[1])
+            except Exception:
+                texto_menu = ESTADO['menu_texto']
+                ESTADO['audio_atual'] = 'menu'
+                ESTADO['opcoes'] = _opcoes_iniciais(ESTADO['roteiros'])
+                return {'ok':True,'acao':'repetir_menu','cliques':0,'texto':texto_menu,'menu':'inicial','novas_opcoes':ESTADO['opcoes']}
+
+            texto_menu, novas_opcoes = _menu_apos_exercicio(exercicio_atual, ESTADO['roteiros'])
+            ESTADO['opcoes'] = novas_opcoes
+            return {'ok':True,'acao':'repetir_menu','cliques':0,'texto':texto_menu,'menu':f'exercicio_{exercicio_atual}','novas_opcoes':novas_opcoes}
+
         destino = ESTADO['opcoes'].get(n)
         if destino is None:
             return {'ok':False,'erro':f'{n} clique(s) não correspondem ao menu atual.','opcoes':ESTADO['opcoes']}
@@ -188,11 +212,22 @@ def cliques():
     if resultado['acao'] == 'nova_foto':
         zerar_sessao()
         return jsonify({'ok':True,'cliques':n,'acao':'nova_foto','comando':'TIRAR_FOTO','mensagem':'Sessão zerada. Na integração real, a ESP32 tira uma nova foto.'})
+    if resultado['acao'] == 'repetir_menu':
+        return jsonify({'ok':True,'cliques':0,'acao':'repetir_menu','texto':resultado['texto'],'menu':resultado['menu'],'novas_opcoes':resultado['novas_opcoes']})
     num = resultado['exercicio']
     with LOCK:
         texto_base = ESTADO['roteiros'][num]
         menu_final, _ = _menu_apos_exercicio(num, ESTADO['roteiros'])
     return jsonify({'ok':True,'cliques':n,'acao':'exercicio','exercicio':num,'audio_url':f'/teste-controle/audio/exercicio/{num}.mp3?t={__import__("time").time()}','novas_opcoes':resultado['novas_opcoes'],'texto':texto_base+'\n\n'+menu_final})
+
+
+@teste_controle_bp.route('/teste-controle/audio/repetir-menu.mp3')
+def audio_repetir_menu():
+    resultado = interpretar_cliques(0)
+    if not resultado.get('ok'):
+        return Response(resultado.get('erro','Menu indisponível.'), status=409)
+    try: return Response(_gerar_tts(resultado['texto']), mimetype='audio/mpeg', headers={'Cache-Control':'no-store'})
+    except Exception as e: return Response(f'ERRO TTS: {e}', status=500)
 
 @teste_controle_bp.route('/teste-controle/audio/menu.mp3')
 def audio_menu():
@@ -216,4 +251,4 @@ def audio_exercicio(num):
 
 @teste_controle_bp.route('/teste-controle')
 def pagina():
-    return Response(r'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teste do cérebro</title><style>body{font-family:Arial;max-width:850px;margin:30px auto;padding:0 18px;background:#0d1117;color:#e6edf3}button{padding:14px 18px;margin:5px;border:0;border-radius:9px;font-weight:bold;cursor:pointer}.prep{background:#238636;color:white}.click{background:#1f6feb;color:white}audio{width:100%;margin:18px 0}.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin:15px 0}pre{white-space:pre-wrap;word-break:break-word}</style></head><body><h1>Teste do cérebro — prova.jpeg</h1><div class="box"><button class="prep" onclick="preparar()">1. ANALISAR PROVA E PREPARAR</button><p id="status">Aguardando.</p></div><div class="box"><h2>Áudio atual</h2><audio id="player" controls></audio><button onclick="tocarMenu()">▶ TOCAR MENU</button></div><div class="box"><h2>Simular botão físico</h2><p>Estes botões enviam somente a quantidade de cliques.</p><button class="click" onclick="clicar(1)">1 CLIQUE</button><button class="click" onclick="clicar(2)">2 CLIQUES</button><button class="click" onclick="clicar(3)">3 CLIQUES</button><button class="click" onclick="clicar(4)">4 CLIQUES</button></div><div class="box"><h2>Estado / texto</h2><pre id="saida"></pre></div><script>const p=document.getElementById('player'),s=document.getElementById('status'),o=document.getElementById('saida');async function preparar(){s.textContent='Analisando prova.jpeg...';let r=await fetch('/api/teste-controle/preparar',{method:'POST'});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent='Pronto: '+d.quantidade+' exercício(s).';p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play();}else{s.textContent='Erro: '+d.erro}}function tocarMenu(){p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play()}async function clicar(n){s.textContent='Enviando somente CLIQUES:'+n;let r=await fetch('/api/teste-controle/cliques',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliques:n})});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){if(d.acao==='nova_foto'){s.textContent='NOVA FOTO escolhida. Sessão zerada.';p.removeAttribute('src');p.load();}else{s.textContent='Servidor interpretou '+n+' clique(s) e escolheu exercício '+d.exercicio;p.src=d.audio_url;p.play();}}else{s.textContent='Erro: '+d.erro}}</script></body></html>''', mimetype='text/html; charset=utf-8')
+    return Response(r'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teste do cérebro</title><style>body{font-family:Arial;max-width:850px;margin:30px auto;padding:0 18px;background:#0d1117;color:#e6edf3}button{padding:14px 18px;margin:5px;border:0;border-radius:9px;font-weight:bold;cursor:pointer}.prep{background:#238636;color:white}.click{background:#1f6feb;color:white}audio{width:100%;margin:18px 0}.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin:15px 0}pre{white-space:pre-wrap;word-break:break-word}</style></head><body><h1>Teste do cérebro — prova.jpeg</h1><div class="box"><button class="prep" onclick="preparar()">1. ANALISAR PROVA E PREPARAR</button><p id="status">Aguardando.</p></div><div class="box"><h2>Áudio atual</h2><audio id="player" controls></audio><button onclick="tocarMenu()">▶ TOCAR MENU</button></div><div class="box"><h2>Simular botão físico</h2><p>Estes botões enviam somente a quantidade de cliques.</p><button class="click" onclick="clicar(0)">0 CLIQUES</button><button class="click" onclick="clicar(1)">1 CLIQUE</button><button class="click" onclick="clicar(2)">2 CLIQUES</button><button class="click" onclick="clicar(3)">3 CLIQUES</button><button class="click" onclick="clicar(4)">4 CLIQUES</button></div><div class="box"><h2>Estado / texto</h2><pre id="saida"></pre></div><script>const p=document.getElementById('player'),s=document.getElementById('status'),o=document.getElementById('saida');async function preparar(){s.textContent='Analisando prova.jpeg...';let r=await fetch('/api/teste-controle/preparar',{method:'POST'});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent='Pronto: '+d.quantidade+' exercício(s).';p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play();}else{s.textContent='Erro: '+d.erro}}function tocarMenu(){p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play()}async function clicar(n){s.textContent='Enviando somente CLIQUES:'+n;let r=await fetch('/api/teste-controle/cliques',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliques:n})});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){if(d.acao==='repetir_menu'){s.textContent='0 cliques: repetindo o último menu.';p.src='/teste-controle/audio/repetir-menu.mp3?t='+Date.now();p.play();}else if(d.acao==='nova_foto'){s.textContent='NOVA FOTO escolhida. Sessão zerada.';p.removeAttribute('src');p.load();}else{s.textContent='Servidor interpretou '+n+' clique(s) e escolheu exercício '+d.exercicio;p.src=d.audio_url;p.play();}}else{s.textContent='Erro: '+d.erro}}</script></body></html>''', mimetype='text/html; charset=utf-8')
