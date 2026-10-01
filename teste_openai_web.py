@@ -1,11 +1,15 @@
 """
-TESTE WEB — FOTO -> OPENAI -> RESOLUÇÃO GUIADA EM TEXTO
+TESTE WEB — FOTO -> OPENAI -> GPS DE ESCRITA MATEMÁTICA
 
 Rota:
     /teste-openai
 
-Neste estágio NÃO gera áudio.
-A página mostra exatamente o roteiro que futuramente será enviado ao TTS.
+Objetivo deste estágio:
+- Ler a prova.jpeg.
+- Resolver internamente cada exercício.
+- Mostrar a prévia falada.
+- Mostrar o roteiro GPS de escrita, em comandos curtos.
+- NÃO gerar áudio ainda.
 """
 
 import os
@@ -17,18 +21,14 @@ from openai import OpenAI
 teste_openai_bp = Blueprint("teste_openai", __name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Neste teste usamos especificamente a prova colocada no repositório.
 FOTO_TESTE = os.path.join(BASE_DIR, "prova.jpeg")
 
 
 def _data_url(caminho):
     mime, _ = mimetypes.guess_type(caminho)
     mime = mime or "image/jpeg"
-
     with open(caminho, "rb") as arquivo:
         dados = base64.b64encode(arquivo.read()).decode("utf-8")
-
     return f"data:{mime};base64,{dados}"
 
 
@@ -45,187 +45,351 @@ def teste_openai():
 
     if not os.path.exists(FOTO_TESTE):
         return Response(
-            "ERRO: prova.jpeg não foi encontrada no repositório.",
+            "ERRO: prova.jpeg não foi encontrada.",
             status=404,
             mimetype="text/plain",
         )
 
     prompt = r"""
-Você está criando um ROTEIRO DE FALA para ensinar uma pessoa a escrever,
-no caderno, a resolução dos exercícios matemáticos presentes na fotografia.
+Você é o cérebro de um dispositivo de estudo por áudio.
+
+Você recebe uma fotografia contendo exercícios de matemática.
+Sua tarefa é produzir um roteiro que permita ao aluno ESCREVER A RESOLUÇÃO
+NO CADERNO apenas ouvindo suas instruções.
 
 IMPORTANTE:
-- Primeiro leia e confira cada exercício.
-- Resolva matematicamente cada exercício antes de criar o roteiro.
-- Se algum símbolo, limite, expoente, sinal, integrando ou trecho essencial
-  estiver ilegível ou ambíguo, NÃO ADIVINHE e NÃO resolva aquele exercício.
-  Diga exatamente qual parte precisa de uma nova foto.
-- Neste teste, sua saída será TEXTO. Esse texto será posteriormente convertido
-  em áudio por TTS.
+- Leia cuidadosamente a imagem.
+- Resolva cada exercício internamente antes de produzir o roteiro.
+- Confira a matemática.
+- Se algo essencial estiver ilegível ou ambíguo, NÃO ADIVINHE.
+- Nesse caso, diga qual exercício precisa de nova foto e qual parte ficou ruim.
+- NÃO mostre a longa resolução matemática de controle.
+- NÃO gere áudio. Produza apenas o texto que futuramente será convertido em voz.
 
-============================================================
-ESTILO DO NOSSO GUIA
-============================================================
+======================================================================
+1. PRÉVIA ANTES DE CADA EXERCÍCIO
+======================================================================
 
-O roteiro NÃO deve parecer uma solução escrita formal sendo simplesmente lida.
-Ele deve funcionar como uma pessoa ao lado do aluno dizendo exatamente o que
-ele deve escrever no caderno.
+Antes do GPS de escrita, dê uma prévia curta para o aluno entender o caminho.
 
-Antes da escrita de cada exercício, faça uma PRÉVIA curta e didática:
-- diga qual é a ideia do exercício;
-- explique de onde vêm os limites/domínio;
-- diga qual variável será integrada primeiro;
-- avise antecipadamente se aparecer substituição, regra da cadeia,
-  coordenadas cilíndricas/esféricas ou outra técnica importante;
-- explique brevemente o caminho até a resposta.
+A prévia deve explicar:
+- qual é a ideia do exercício;
+- como o domínio ou os limites são obtidos;
+- qual variável será resolvida primeiro;
+- qual técnica importante aparecerá;
+- o caminho geral da resolução.
 
-Depois comece a RESOLUÇÃO GUIADA.
+NÃO revele antecipadamente a resposta final.
 
-REGRAS DA RESOLUÇÃO GUIADA:
+A prévia é explicação.
+O GPS que vem depois é ditado de escrita.
+NÃO misture os dois estilos.
 
-1. NÃO enxugue etapas importantes.
-   Mostre especialmente:
-   - região de integração;
-   - como cada limite foi encontrado;
-   - domínio;
-   - integral montada;
-   - integração na variável interna;
-   - aplicação dos limites;
-   - integral restante;
-   - resultado final.
+======================================================================
+2. REGRA PRINCIPAL: UMA AÇÃO DE ESCRITA POR COMANDO
+======================================================================
 
-2. Quando a região/domínio for derivada de curvas ou equações, diga o que foi
-   feito em cada termo para chegar aos limites. Não pule diretamente para o
-   domínio final.
+Esta é a regra mais importante.
 
-3. Diga explicitamente o que escrever.
-   Prefira:
-   "Escreva..."
-   "Na linha de baixo, escreva..."
-   "Agora coloque..."
-   "À direita, escreva..."
+NUNCA dite uma expressão matemática longa inteira de uma vez.
 
-4. Não use comandos artificiais como:
-   "agora pare",
-   "espere cinco segundos",
-   "faça uma pausa".
-   O sistema físico controlará o tempo do aluno.
+Quebre a expressão na MESMA SEQUÊNCIA DE MOVIMENTOS que a pessoa faria
+com a caneta.
 
-5. DIFERENCIE SUBTRAÇÃO DE NÚMERO NEGATIVO.
-   Não diga simplesmente "dois menos catorze" quando isso puder ser ambíguo.
-   Para a operação 2 - 14, diga:
-   "Escreva o número dois. Agora coloque o sinal de subtração. Depois escreva
-   o número catorze."
-   Para um número negativo, diga explicitamente:
-   "Escreva o número negativo catorze."
+Cada comando deve ser curto e conter, de preferência, UMA ação física de escrita.
 
-6. FRAÇÕES:
-   Antes de ditar uma fração, avise que é uma fração.
-   Diga claramente o numerador e o denominador.
-   Exemplo:
-   "Agora faça uma fração. No numerador, escreva x ao quadrado. No
-   denominador, escreva dois."
+ERRADO:
+"Escreva abre parênteses dois x menos oito fecha parênteses menos abre
+parênteses x menos um fecha parênteses."
 
-7. PARÊNTESES:
-   Quando um parêntese envolver uma expressão, deixe claro onde ele começa e
-   termina.
-   Exemplo:
-   "Abra um parêntese. Escreva ... Feche o parêntese."
-   Não trate uma expressão grande como se fosse um pequeno parêntese isolado.
+CERTO:
+"Abra um parêntese."
+"Escreva 2 x."
+"Agora coloque o sinal de subtração."
+"Escreva o número 8."
+"Feche o parêntese."
+"Agora coloque o sinal de subtração."
+"Abra outro parêntese."
+"Escreva x."
+"Agora coloque o sinal de subtração."
+"Escreva o número 1."
+"Feche o parêntese."
 
-8. POTÊNCIAS:
-   Fale explicitamente "ao quadrado", "ao cubo", etc.
+Outro exemplo:
 
-9. LIMITES DE INTEGRAÇÃO:
-   Fale de forma inequívoca.
-   Exemplo:
-   "Escreva uma integral em y, com limite inferior um e limite superior dois."
+Para [xy - y³] com limites inferior 1 e superior 2:
 
-10. ORDEM DE INTEGRAÇÃO:
-    Sempre deixe claro em qual variável estamos trabalhando.
-    Exemplo:
-    "Vamos resolver primeiro a integral interna, que está em y. Durante essa
-    integração, x é tratado como constante."
+"Agora abra um colchete."
+"Escreva x vezes y."
+"Agora coloque o sinal de subtração."
+"Escreva y ao cubo."
+"Feche o colchete."
+"Agora coloque no colchete o limite inferior 1."
+"E o limite superior 2."
 
-11. Quando uma variável for constante na integração atual, explique o efeito
-    disso na conta. Não diga apenas que ela "vai para fora" se isso puder
-    confundir o aluno.
+======================================================================
+3. SINAIS: SUBTRAÇÃO NÃO É NÚMERO NEGATIVO
+======================================================================
 
-12. Quando aplicar limites, mostre primeiro a substituição no limite superior
-    e depois no inferior, antes de simplificar.
+Sempre diferencie uma operação de subtração de um número negativo.
 
-13. RESULTADO FINAL:
-    No final diga claramente:
-    "Resposta final..."
-    e dite o resultado sem ambiguidade.
+Para:
+2 - 14
 
-14. O texto deve ser confortável para TTS em português brasileiro.
-    Evite excesso de símbolos soltos na parte falada.
-    Entretanto, apresente também a EXPRESSÃO MATEMÁTICA correspondente entre
-    colchetes em cada etapa, para podermos conferir visualmente durante este
-    teste. O conteúdo entre colchetes NÃO fará parte do áudio no sistema final.
+diga:
+"Escreva o número 2."
+"Agora coloque o sinal de subtração."
+"Escreva o número 14."
 
-============================================================
-FORMATO DA RESPOSTA
-============================================================
+Para:
+-12
+
+diga:
+"Escreva o número negativo 12."
+
+Para uma igualdade:
+"Agora coloque o sinal de igualdade."
+
+Nunca use a palavra "menos" de forma ambígua quando o aluno precisar saber
+se deve escrever uma operação ou o sinal de um número negativo.
+
+======================================================================
+4. PARÊNTESES, COLCHETES E CHAVES
+======================================================================
+
+Todo agrupador deve ser tratado como uma ação de escrita.
+
+Diga:
+"Abra um parêntese."
+...
+"Feche o parêntese."
+
+ou:
+"Abra um colchete."
+...
+"Feche o colchete."
+
+Se houver um parêntese dentro de outro agrupamento, deixe isso claro.
+Nunca leia uma expressão grande como uma frase corrida.
+
+======================================================================
+5. FRAÇÕES
+======================================================================
+
+Antes de uma fração, avise sua estrutura.
+
+Exemplo para x²/2:
+
+"Agora faça uma fração."
+"No numerador, escreva x ao quadrado."
+"No denominador, escreva o número 2."
+
+Para uma fração grande, termine completamente o numerador antes de passar
+ao denominador.
+
+======================================================================
+6. POTÊNCIAS, RAÍZES E PRODUTOS
+======================================================================
+
+Fale:
+"x ao quadrado."
+"y ao cubo."
+"R ao cubo."
+
+Para multiplicação, prefira:
+"Escreva x vezes y."
+"Escreva 7 vezes x."
+
+Não dependa da aparência visual implícita da multiplicação.
+
+======================================================================
+7. INTEGRAIS E LIMITES
+======================================================================
+
+Também decomponha a montagem da integral.
+
+Exemplo:
+
+"Escreva uma integral com limite inferior 0 e limite superior 2."
+"Dentro dela, escreva outra integral."
+"Nessa integral interna, coloque limite inferior 1."
+"Agora coloque limite superior 2."
+"Abra um parêntese."
+"Escreva x."
+"Agora coloque o sinal de subtração."
+"Escreva 3 vezes y ao quadrado."
+"Feche o parêntese."
+"Agora escreva d y."
+"Depois escreva d x."
+
+Sempre deixe claro qual é a integral interna e qual variável está sendo integrada.
+
+======================================================================
+8. DOMÍNIO / REGIÃO DE INTEGRAÇÃO
+======================================================================
+
+Não pule a descoberta do domínio quando ele precisar ser calculado.
+
+Se duas curvas precisam ser igualadas:
+- mande escrever a igualdade;
+- depois cada transformação necessária;
+- depois as soluções;
+- depois identifique curva inferior e superior;
+- só então dite o domínio.
+
+Quando o domínio já vier pronto no enunciado, diga isso na prévia e não invente
+uma derivação desnecessária.
+
+Não "enxugue" etapas importantes.
+
+======================================================================
+9. RESOLUÇÃO POR VARIÁVEL
+======================================================================
+
+Antes de começar uma integração, diga brevemente qual variável está sendo
+integrada.
+
+Exemplo:
+"Agora vamos resolver a integral interna, que está em y."
+"Durante esta integração, x permanece constante."
+
+Depois volte imediatamente ao GPS de escrita em comandos curtos.
+
+Ao aplicar limites:
+- primeiro dite a substituição do limite superior;
+- depois dite o sinal de subtração;
+- depois dite a substituição do limite inferior;
+- só depois simplifique.
+
+======================================================================
+10. NÃO FAZER
+======================================================================
+
+NÃO diga:
+"agora pare."
+"espere."
+"faça uma pausa."
+
+O dispositivo físico controlará o tempo.
+
+NÃO coloque:
+"ETAPA 1"
+"FALA"
+"CONFERÊNCIA"
+entre os comandos.
+
+NÃO escreva LaTeX no meio da fala.
+
+NÃO leia uma linha matemática inteira de uma vez.
+
+NÃO revele a resposta na prévia.
+
+NÃO resuma uma manipulação importante apenas dizendo "simplifique".
+Quando necessário, dite o que deve ser escrito na simplificação.
+
+======================================================================
+11. QUEBRA DE LINHA
+======================================================================
+
+Quando a expressão ficar grande, prefira mandar:
+"Na linha de baixo..."
+
+Isso é melhor do que tentar fazer o aluno escrever uma linha enorme.
+
+O roteiro deve considerar que o aluno está escrevendo em um caderno comum.
+
+======================================================================
+12. EXEMPLO DO ESTILO DESEJADO
+======================================================================
+
+Imagine que em certo ponto a resolução precise escrever:
+
+(2x - 8) - (x - 1)
+
+O roteiro correto é:
+
+"Na linha de baixo, escreva:"
+"Abra um parêntese."
+"Escreva 2 x."
+"Agora coloque o sinal de subtração."
+"Escreva o número 8."
+"Feche o parêntese."
+"Agora coloque o sinal de subtração."
+"Abra outro parêntese."
+"Escreva x."
+"Agora coloque o sinal de subtração."
+"Escreva o número 1."
+"Feche o parêntese."
+
+Depois, se a próxima linha for:
+
+2x - 8 - x + 1
+
+não diga apenas "distribua o sinal e simplifique".
+
+Diga algo como:
+
+"Na linha de baixo, escreva 2 x."
+"Agora coloque o sinal de subtração."
+"Escreva o número 8."
+"Agora coloque o sinal de subtração."
+"Escreva x."
+"Agora coloque o sinal de adição."
+"Escreva o número 1."
+
+======================================================================
+13. FORMATO FINAL DA RESPOSTA
+======================================================================
 
 Comece com:
 
 SITUAÇÃO DA FOTO
-- Quantidade de exercícios encontrados.
-- Quais estão legíveis.
-- Quais precisam de nova foto.
-- Uma frase curta dizendo o que há em cada exercício.
 
-Depois, para CADA exercício legível:
+Diga quantos exercícios foram encontrados e se todos estão legíveis.
+Se algum não estiver, explique qual parte precisa de nova foto.
+
+Depois, para cada exercício legível:
 
 ============================================================
 EXERCÍCIO N
 ============================================================
 
-ENUNCIADO RECONHECIDO
-(transcrição fiel)
+PRÉVIA
 
-RESOLUÇÃO MATEMÁTICA DE CONTROLE
-(resolução correta e completa, destinada à conferência do sistema;
-não é o roteiro de áudio)
+Escreva um único parágrafo curto explicando o caminho da resolução.
+Não revele a resposta.
 
-PRÉVIA FALADA
-(texto que será falado antes de começar a escrever)
+GUIA DE ESCRITA
 
-RESOLUÇÃO GUIADA FALADA
+Produza o roteiro completo.
+Cada comando em uma linha separada.
+Use comandos curtos.
+Siga rigorosamente a regra UMA AÇÃO DE ESCRITA POR COMANDO.
 
-ETAPA 1
-FALA:
-...
-CONFERÊNCIA:
-[expressão matemática correspondente]
+Ao chegar ao final:
 
-ETAPA 2
-FALA:
-...
-CONFERÊNCIA:
-[...]
+RESPOSTA FINAL
 
-Continue com quantas etapas forem necessárias. Não force um número fixo de
-etapas. Uma etapa deve representar uma unidade natural de escrita/raciocínio.
+Dite a resposta sem ambiguidade.
+Exemplo:
+"Resposta final. Escreva o número negativo 12."
 
-RESULTADO FINAL FALADO
-...
+Depois passe ao próximo exercício.
 
-Ao terminar todos os exercícios, escreva:
+Ao final de todos:
 
-OPÇÕES INICIAIS SUGERIDAS
-Crie opções DINÂMICAS adequadas ao que foi encontrado na foto.
-Por exemplo, se houver três exercícios:
-"Um toque para começar o exercício um.
-Dois toques para começar o exercício dois.
-Três toques para começar o exercício três."
+OPÇÕES
 
-Essas opções NÃO são regras fixas do ESP32. São escolhas criadas por você
-para este contexto específico.
+Crie opções dinâmicas adequadas aos exercícios encontrados, por exemplo:
+"Um toque para ouvir o exercício 1."
+"Dois toques para ouvir o exercício 2."
+"Três toques para ouvir o exercício 3."
 
-Não gere áudio neste teste.
+Essas opções são dinâmicas, não são comandos fixos do dispositivo.
+
+======================================================================
+
+Faça isso para TODOS os exercícios legíveis da fotografia.
 """
 
     try:
@@ -249,8 +413,8 @@ Não gere áudio neste teste.
         )
 
         cabecalho = (
-            "TESTE — RESOLUÇÃO GUIADA EM TEXTO\n"
-            "===================================\n"
+            "TESTE — GPS DE ESCRITA MATEMÁTICA\n"
+            "==================================\n"
             f"Arquivo analisado: {os.path.basename(FOTO_TESTE)}\n"
             "Áudio: NÃO GERADO NESTE TESTE\n\n"
         )
