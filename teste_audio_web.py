@@ -174,7 +174,7 @@ def gerar_audio():
             model="gpt-4o-mini-tts",
             voice="alloy",
             input=TEXTO_AUDIO,
-            speed=0.65,
+            speed=0.50,
             instructions=(
                 "Fale em português brasileiro. "
                 "Use voz calma, clara e didática, como um professor orientando "
