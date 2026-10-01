@@ -1629,8 +1629,12 @@ def executar_escolha_fisica(ws, quantidade):
         adicionar_log_esp32("OK", f"Foto analisada. {inicio.get('quantidade', 0)} exercício(s) encontrado(s).")
         adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {inicio.get('quantidade', 0)}")
         adicionar_log_ia("LEITURA", inicio.get("menu", ""))
+        adicionar_log_ia("ÁUDIO", "Criando o áudio da leitura inicial...")
         audio_id = preparar_audio_tts_para_esp(inicio["menu"])
-        ws.send("NOVO_AUDIO|" + audio_id)
+        adicionar_log_ia("ÁUDIO", f"WAV da leitura inicial criado: {audio_id}")
+        comando_audio = "NOVO_AUDIO|" + audio_id
+        ws.send(comando_audio)
+        adicionar_log_ia("ENVIO", f"Comando enviado para a ESP32: {comando_audio}")
         adicionar_log_esp32("OK", f"Leitura inicial da foto enviada para a ESP32: {audio_id}")
         return
 
@@ -1651,8 +1655,11 @@ def executar_escolha_fisica(ws, quantidade):
         adicionar_log_esp32("INFO", "0 cliques: repetindo o último menu falado.")
         adicionar_log_ia("AÇÃO", "0 cliques com sessão ativa = repetir o último menu falado.")
         adicionar_log_ia("MENU", resultado.get("texto", ""))
+        adicionar_log_ia("ÁUDIO", "Criando áudio para repetir o menu...")
         audio_id = preparar_audio_tts_para_esp(resultado["texto"])
-        ws.send("NOVO_AUDIO|" + audio_id)
+        comando_audio = "NOVO_AUDIO|" + audio_id
+        ws.send(comando_audio)
+        adicionar_log_ia("ENVIO", f"Comando enviado para a ESP32: {comando_audio}")
         adicionar_log_esp32("OK", f"Menu repetido enviado para a ESP32: {audio_id}")
         return
 
@@ -1665,8 +1672,11 @@ def executar_escolha_fisica(ws, quantidade):
     adicionar_log_esp32("INFO", f"Cliques escolheram exercício {num}. Gerando áudio...")
     adicionar_log_ia("AÇÃO", f"Menu interpretado: abrir resolução do exercício {num}.")
     adicionar_log_ia("QUESTÃO/RESOLUÇÃO", texto)
+    adicionar_log_ia("ÁUDIO", f"Criando áudio da resolução do exercício {num}...")
     audio_id = preparar_audio_tts_para_esp(texto)
-    ws.send("NOVO_AUDIO|" + audio_id)
+    comando_audio = "NOVO_AUDIO|" + audio_id
+    ws.send(comando_audio)
+    adicionar_log_ia("ENVIO", f"Comando enviado para a ESP32: {comando_audio}")
     adicionar_log_esp32("OK", f"Áudio do exercício {num} enviado para a ESP32: {audio_id}")
 
 
