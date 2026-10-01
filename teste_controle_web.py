@@ -167,11 +167,11 @@ def _gerar_tts(texto):
         response_format='mp3')
     return audio.content
 
-@teste_controle_bp.route('/api/teste-controle/preparar', methods=['POST'])
-def preparar():
+def iniciar_ultima_foto():
+    """Analisa a foto de teste e cria uma nova sessão/menu inicial."""
     with LOCK:
         if ESTADO['processando']:
-            return jsonify({'ok': False, 'erro': 'Análise já em andamento.'}), 409
+            return {'ok': False, 'erro': 'Análise já em andamento.'}
         ESTADO['processando'] = True
         ESTADO['erro'] = None
     try:
@@ -189,12 +189,19 @@ def preparar():
         opcoes = _opcoes_iniciais(roteiros)
         with LOCK:
             ESTADO.update({'preparado':True,'situacao':situacao,'menu_texto':menu,'opcoes':opcoes,'roteiros':roteiros,'audio_atual':'menu','ultima_escolha':None})
-        return jsonify({'ok':True,'quantidade':len(roteiros),'situacao':situacao,'menu':menu,'opcoes':opcoes})
+        return {'ok':True,'quantidade':len(roteiros),'situacao':situacao,'menu':menu,'opcoes':opcoes}
     except Exception as e:
-        with LOCK: ESTADO['erro'] = f'{type(e).__name__}: {e}'
-        return jsonify({'ok':False,'erro':f'{type(e).__name__}: {e}'}), 500
+        with LOCK:
+            ESTADO['erro'] = f'{type(e).__name__}: {e}'
+        return {'ok':False,'erro':f'{type(e).__name__}: {e}'}
     finally:
-        with LOCK: ESTADO['processando'] = False
+        with LOCK:
+            ESTADO['processando'] = False
+
+@teste_controle_bp.route('/api/teste-controle/preparar', methods=['POST'])
+def preparar():
+    resultado = iniciar_ultima_foto()
+    return jsonify(resultado), (200 if resultado.get('ok') else 500)
 
 @teste_controle_bp.route('/api/teste-controle/estado')
 def estado():
