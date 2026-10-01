@@ -38,6 +38,9 @@ lock = threading.Lock()
 ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
+
+# Escolha remota da bancada; consumida uma única vez quando chegar CLIQUES|0.
+clique_bancada_pendente = None
 audio_pendente_esp = None
 
 
@@ -1626,7 +1629,37 @@ def preparar_audio_tts_para_esp(texto):
     return audio_id
 
 
+def registrar_clique_bancada(n):
+    global clique_bancada_pendente
+    n = int(n)
+    if n < 0:
+        raise ValueError("Clique inválido")
+    with lock:
+        clique_bancada_pendente = n
+    adicionar_log_ia("BANCADA", f"Escolha remota armada: {n} clique(s). Aguardando CLIQUES|0 da ESP.")
+    return n
+
+def consumir_clique_bancada():
+    global clique_bancada_pendente
+    with lock:
+        n = clique_bancada_pendente
+        clique_bancada_pendente = None
+    return n
+
 def executar_escolha_fisica(ws, quantidade):
+    # Se a ESP terminou os 15 s com 0, a bancada pode substituir esse 0.
+    try:
+        n = int(n)
+    except Exception:
+        pass
+    if n == 0:
+        clique_remoto = consumir_clique_bancada()
+        if clique_remoto is not None:
+            adicionar_log_ia("BANCADA", f"ESP enviou 0; usando escolha da bancada: {clique_remoto} clique(s).")
+            n = clique_remoto
+        else:
+            adicionar_log_ia("BANCADA", "ESP enviou 0; nenhuma escolha na página. Mantendo 0.")
+
     """Interpreta CLIQUES|N usando exatamente o mesmo menu da bancada."""
     # REGRA DE START: 0 cliques sem sessão preparada inicia a última foto.
     # Por enquanto, na bancada, a "última foto" continua sendo prova.jpeg.
@@ -1897,6 +1930,14 @@ def websocket_esp32(ws):
 # =========================================================
 # EXECUÇÃO LOCAL
 # =========================================================
+
+
+
+# =========================================================
+# CALLBACK PARA A PÁGINA DE TESTE DE BANCADA
+# =========================================================
+app.extensions['executar_escolha_fisica'] = executar_escolha_fisica
+app.extensions['registrar_clique_bancada'] = registrar_clique_bancada
 
 if __name__ == "__main__":
 
