@@ -1599,6 +1599,13 @@ def executar_escolha_fisica(ws, quantidade):
         ws.send("TIRAR_FOTO")
         return
 
+    if resultado.get("acao") == "repetir_menu":
+        adicionar_log_esp32("INFO", "0 cliques: repetindo o último menu falado.")
+        audio_id = preparar_audio_tts_para_esp(resultado["texto"])
+        ws.send("NOVO_AUDIO|" + audio_id)
+        adicionar_log_esp32("OK", f"Menu repetido enviado para a ESP32: {audio_id}")
+        return
+
     num = resultado["exercicio"]
     with LOCK_CONTROLE:
         texto_base = ESTADO_CONTROLE["roteiros"][num]
@@ -1683,7 +1690,7 @@ def websocket_esp32(ws):
                 ws.send("CLIQUES_OK")
                 adicionar_log_esp32("OK", f"CLIQUES|{quantidade} recebido e confirmado.")
 
-                if quantidade > 0:
+                if quantidade >= 0:
                     try:
                         executar_escolha_fisica(ws, quantidade)
                     except Exception as erro:
