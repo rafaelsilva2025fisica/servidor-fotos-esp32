@@ -7,8 +7,11 @@ import uuid
 import subprocess
 import imageio_ffmpeg
 from datetime import datetime
+from teste_openai_web import teste_openai_bp
 
 app = Flask(__name__)
+
+app.register_blueprint(teste_openai_bp)
 
 # =========================================================
 # GALERIA DE FOTOS
