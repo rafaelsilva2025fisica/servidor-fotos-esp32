@@ -43,6 +43,32 @@ audios = {}
 logs_esp32 = []
 MAX_LOGS_ESP32 = 300
 
+# =========================================================
+# LOG SEPARADO DO CEREBRO / IA
+# =========================================================
+logs_ia = []
+MAX_LOGS_IA = 300
+
+def adicionar_log_ia(tipo, mensagem):
+    item = {
+        "id": uuid.uuid4().hex[:10],
+        "hora": datetime.now().strftime("%d/%m %H:%M:%S"),
+        "tipo": str(tipo or "INFO").upper(),
+        "mensagem": str(mensagem)
+    }
+
+    with lock:
+        logs_ia.append(item)
+        if len(logs_ia) > MAX_LOGS_IA:
+            del logs_ia[:-MAX_LOGS_IA]
+
+    print(
+        f"LOG IA [{item['tipo']}] {item['mensagem']}",
+        flush=True
+    )
+    return item
+
+
 def adicionar_log_esp32(nivel, mensagem):
     nivel = (nivel or "INFO").upper().strip()
     if nivel not in {"INFO", "OK", "AVISO", "ERRO"}:
@@ -1595,11 +1621,14 @@ def executar_escolha_fisica(ws, quantidade):
 
     if quantidade == 0 and not preparado:
         adicionar_log_esp32("INFO", "0 cliques sem sessão ativa: iniciando leitura da última foto.")
+        adicionar_log_ia("AÇÃO", "0 cliques sem sessão ativa = START da última foto. Iniciando análise.")
         inicio = iniciar_ultima_foto()
         if not inicio.get("ok"):
             adicionar_log_esp32("ERRO", "Falha ao iniciar última foto: " + str(inicio.get("erro")))
             return
         adicionar_log_esp32("OK", f"Foto analisada. {inicio.get('quantidade', 0)} exercício(s) encontrado(s).")
+        adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {inicio.get('quantidade', 0)}")
+        adicionar_log_ia("LEITURA", inicio.get("menu", ""))
         audio_id = preparar_audio_tts_para_esp(inicio["menu"])
         ws.send("NOVO_AUDIO|" + audio_id)
         adicionar_log_esp32("OK", f"Leitura inicial da foto enviada para a ESP32: {audio_id}")
@@ -1608,16 +1637,20 @@ def executar_escolha_fisica(ws, quantidade):
     resultado = interpretar_cliques(quantidade)
     if not resultado.get("ok"):
         adicionar_log_esp32("AVISO", "Cliques sem opção válida: " + str(resultado.get("erro")))
+        adicionar_log_ia("AVISO", "Clique recebido, mas não corresponde ao menu atual: " + str(resultado.get("erro")))
         return
 
     if resultado.get("acao") == "nova_foto":
         zerar_sessao()
         adicionar_log_esp32("INFO", "Opção física escolhida: nova foto. Sessão zerada.")
+        adicionar_log_ia("AÇÃO", "Menu interpretado: tirar nova foto e zerar a sessão.")
         ws.send("TIRAR_FOTO")
         return
 
     if resultado.get("acao") == "repetir_menu":
         adicionar_log_esp32("INFO", "0 cliques: repetindo o último menu falado.")
+        adicionar_log_ia("AÇÃO", "0 cliques com sessão ativa = repetir o último menu falado.")
+        adicionar_log_ia("MENU", resultado.get("texto", ""))
         audio_id = preparar_audio_tts_para_esp(resultado["texto"])
         ws.send("NOVO_AUDIO|" + audio_id)
         adicionar_log_esp32("OK", f"Menu repetido enviado para a ESP32: {audio_id}")
@@ -1630,9 +1663,67 @@ def executar_escolha_fisica(ws, quantidade):
     texto = texto_base + "\n\n" + menu_final
 
     adicionar_log_esp32("INFO", f"Cliques escolheram exercício {num}. Gerando áudio...")
+    adicionar_log_ia("AÇÃO", f"Menu interpretado: abrir resolução do exercício {num}.")
+    adicionar_log_ia("QUESTÃO/RESOLUÇÃO", texto)
     audio_id = preparar_audio_tts_para_esp(texto)
     ws.send("NOVO_AUDIO|" + audio_id)
     adicionar_log_esp32("OK", f"Áudio do exercício {num} enviado para a ESP32: {audio_id}")
+
+
+
+# =========================================================
+# PAINEL SEPARADO DO CEREBRO / IA
+# =========================================================
+
+@app.route("/api/log-ia")
+def api_log_ia():
+    with lock:
+        itens = list(logs_ia)
+    return jsonify({"ok": True, "logs": itens})
+
+
+@app.route("/log-ia")
+def pagina_log_ia():
+    return Response(r"""<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Log do Cérebro IA</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}
+.wrap{max-width:1000px;margin:auto}
+h1{margin-bottom:6px}.sub{color:#8b949e;margin-bottom:20px}
+#log{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;min-height:400px}
+.item{border-bottom:1px solid #30363d;padding:12px 4px;white-space:pre-wrap;word-break:break-word}
+.item:last-child{border-bottom:0}.hora{color:#8b949e}.tipo{font-weight:bold;margin:0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Cérebro IA</h1>
+<div class="sub">Somente decisões da IA, fila de cliques, leitura da foto, menu e áudio escolhido.</div>
+<div id="log">Aguardando eventos...</div>
+</div>
+<script>
+async function atualizar(){
+  try{
+    const r=await fetch('/api/log-ia?t='+Date.now(),{cache:'no-store'});
+    const d=await r.json();
+    const box=document.getElementById('log');
+    if(!d.logs || !d.logs.length){box.textContent='Aguardando eventos...';return;}
+    box.innerHTML=d.logs.map(x =>
+      '<div class="item"><span class="hora">'+x.hora+'</span>'+
+      '<span class="tipo">['+x.tipo+']</span>'+
+      '<span>'+String(x.mensagem).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</span></div>'
+    ).join('');
+    window.scrollTo(0,document.body.scrollHeight);
+  }catch(e){}
+}
+atualizar(); setInterval(atualizar,1500);
+</script>
+</body>
+</html>""", mimetype="text/html; charset=utf-8")
 
 
 # =========================================================
@@ -1706,6 +1797,7 @@ def websocket_esp32(ws):
                 # Primeiro confirma o recebimento. A ESP32 só então apaga o TXT pendente.
                 ws.send("CLIQUES_OK")
                 adicionar_log_esp32("OK", f"CLIQUES|{quantidade} recebido e confirmado.")
+                adicionar_log_ia("FILA", f"Fila de cliques recebida da ESP32: {quantidade}")
 
                 if quantidade >= 0:
                     try:
