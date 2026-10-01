@@ -167,21 +167,22 @@ def _gerar_tts(texto):
         response_format='mp3')
     return audio.content
 
-def iniciar_ultima_foto():
-    """Analisa a foto de teste e cria uma nova sessão/menu inicial."""
+def iniciar_ultima_foto(caminho_foto=None):
+    """Analisa a foto informada; sem caminho, mantém prova.jpeg para a bancada."""
     with LOCK:
         if ESTADO['processando']:
             return {'ok': False, 'erro': 'Análise já em andamento.'}
         ESTADO['processando'] = True
         ESTADO['erro'] = None
     try:
-        if not os.path.exists(FOTO_TESTE):
-            raise FileNotFoundError('prova.jpeg não foi encontrada no diretório do app.py.')
+        foto_para_analisar = caminho_foto or FOTO_TESTE
+        if not os.path.exists(foto_para_analisar):
+            raise FileNotFoundError(f'Foto não encontrada: {foto_para_analisar}')
         chave = os.getenv('OPENAI_API_KEY')
         if not chave:
             raise RuntimeError('OPENAI_API_KEY não encontrada.')
         cliente = OpenAI(api_key=chave)
-        resposta = cliente.responses.create(model='gpt-5.6-luna', input=[{'role':'user','content':[{'type':'input_text','text':_prompt()},{'type':'input_image','image_url':_data_url(FOTO_TESTE),'detail':'high'}]}])
+        resposta = cliente.responses.create(model='gpt-5.6-luna', input=[{'role':'user','content':[{'type':'input_text','text':_prompt()},{'type':'input_image','image_url':_data_url(foto_para_analisar),'detail':'high'}]}])
         situacao, roteiros = _separar_saida(resposta.output_text)
         if not roteiros:
             raise RuntimeError('A IA não devolveu nenhum bloco de exercício no formato esperado.')
