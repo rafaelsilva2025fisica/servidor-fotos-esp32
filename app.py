@@ -38,6 +38,7 @@ lock = threading.Lock()
 ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
+audio_pendente_esp = None
 
 
 logs_esp32 = []
@@ -1306,37 +1307,8 @@ def enviar_audio():
             "criado": time.time()
         }
 
-        socket_atual = esp_ws
-
-    if socket_atual is None:
-
-        return jsonify({
-            "erro": "Canal da ESP32 não está disponível."
-        }), 503
-
-    try:
-
-        comando = "NOVO_AUDIO|" + audio_id
-
-        socket_atual.send(comando)
-
-        print(
-            "SERVIDOR -> ESP32:",
-            comando,
-            flush=True
-        )
-
-    except Exception as erro:
-
-        print(
-            "ERRO AO AVISAR ESP32:",
-            erro,
-            flush=True
-        )
-
-        return jsonify({
-            "erro": "Falha ao enviar comando para ESP32."
-        }), 500
+    # Mesmo despachante usado pelos áudios criados pela IA.
+    despachar_audio_para_esp(audio_id)
 
     return jsonify({
         "ok": True,
@@ -1583,6 +1555,48 @@ def arquivo_galeria(nome):
     return send_from_directory(PASTA_GALERIA, nome)
 
 # =========================================================
+# DESPACHO CENTRAL DE AUDIO PARA ESP32
+# Usa sempre o WebSocket ATUAL, igual ao envio pelo site.
+# Se a ESP estiver desconectada, mantém o áudio pendente.
+# =========================================================
+def despachar_audio_para_esp(audio_id):
+    global esp_ws, audio_pendente_esp
+
+    comando = "NOVO_AUDIO|" + audio_id
+
+    with lock:
+        audio_pendente_esp = audio_id
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        adicionar_log_ia("PENDENTE", f"Áudio {audio_id} aguardando WebSocket ativo da ESP32.")
+        return False
+
+    try:
+        socket_atual.send(comando)
+        adicionar_log_ia("ENVIO", f"Enviado pelo WebSocket atual da ESP32: {comando}")
+        adicionar_log_esp32("OK", f"Comando {comando} enviado para a ESP32.")
+        return True
+    except Exception as erro:
+        # Não perde o áudio: ele continuará pendente e será reenviado na reconexão.
+        with lock:
+            if esp_ws is socket_atual:
+                esp_ws = None
+        adicionar_log_ia("PENDENTE", f"WebSocket fechou durante o envio. Áudio {audio_id} ficou pendente: {type(erro).__name__}: {erro}")
+        adicionar_log_esp32("AVISO", f"Áudio {audio_id} pendente para a próxima conexão da ESP32.")
+        return False
+
+
+def enviar_audio_pendente_se_houver():
+    global audio_pendente_esp
+    with lock:
+        audio_id = audio_pendente_esp
+    if not audio_id:
+        return False
+    adicionar_log_ia("REENVIO", f"ESP32 conectada. Tentando entregar áudio pendente: {audio_id}")
+    return despachar_audio_para_esp(audio_id)
+
+# =========================================================
 # CEREBRO DE CLIQUES -> AUDIO PARA ESP32
 # =========================================================
 def preparar_audio_tts_para_esp(texto):
@@ -1637,10 +1651,7 @@ def executar_escolha_fisica(ws, quantidade):
             audio_id = preparar_audio_tts_para_esp(inicio["menu"])
             adicionar_log_ia("ÁUDIO", f"WAV da leitura inicial criado: {audio_id}")
 
-            comando_audio = "NOVO_AUDIO|" + audio_id
-            ws.send(comando_audio)
-            adicionar_log_ia("ENVIO", f"Enviado para a ESP32: {comando_audio}")
-            adicionar_log_esp32("OK", f"Leitura inicial da foto enviada para a ESP32: {audio_id}")
+            despachar_audio_para_esp(audio_id)
         except Exception as e:
             erro = f"Falha ao criar/enviar áudio inicial: {type(e).__name__}: {e}"
             adicionar_log_ia("ERRO", erro)
@@ -1667,10 +1678,7 @@ def executar_escolha_fisica(ws, quantidade):
         adicionar_log_ia("MENU", resultado.get("texto", ""))
         adicionar_log_ia("ÁUDIO", "Criando áudio para repetir o menu...")
         audio_id = preparar_audio_tts_para_esp(resultado["texto"])
-        comando_audio = "NOVO_AUDIO|" + audio_id
-        ws.send(comando_audio)
-        adicionar_log_ia("ENVIO", f"Enviado para a ESP32: {comando_audio}")
-        adicionar_log_esp32("OK", f"Menu repetido enviado para a ESP32: {audio_id}")
+        despachar_audio_para_esp(audio_id)
         return
 
     num = resultado["exercicio"]
@@ -1684,10 +1692,7 @@ def executar_escolha_fisica(ws, quantidade):
     adicionar_log_ia("QUESTÃO/RESOLUÇÃO", texto)
     adicionar_log_ia("ÁUDIO", f"Criando áudio da resolução do exercício {num}...")
     audio_id = preparar_audio_tts_para_esp(texto)
-    comando_audio = "NOVO_AUDIO|" + audio_id
-    ws.send(comando_audio)
-    adicionar_log_ia("ENVIO", f"Enviado para a ESP32: {comando_audio}")
-    adicionar_log_esp32("OK", f"Áudio do exercício {num} enviado para a ESP32: {audio_id}")
+    despachar_audio_para_esp(audio_id)
 
 
 
@@ -1753,7 +1758,7 @@ atualizar(); setInterval(atualizar,1500);
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
 
-    global esp_ws
+    global esp_ws, audio_pendente_esp
 
     print(
         "================================",
@@ -1779,6 +1784,9 @@ def websocket_esp32(ws):
     try:
 
         ws.send("SERVIDOR_OK")
+
+        # Se um áudio ficou pronto enquanto o socket anterior caiu, entrega agora.
+        enviar_audio_pendente_se_houver()
 
         while True:
 
@@ -1853,6 +1861,9 @@ def websocket_esp32(ws):
                         if audio_id in audios:
 
                             audios[audio_id]["recebido"] = True
+
+                        if audio_pendente_esp == audio_id:
+                            audio_pendente_esp = None
 
                     print(
                         ">>> WAV CONFIRMADO PELA ESP32:",
