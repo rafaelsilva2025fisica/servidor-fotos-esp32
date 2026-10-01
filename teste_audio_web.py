@@ -22,6 +22,13 @@ teste_audio_bp = Blueprint("teste_audio", __name__)
 TEXTO_AUDIO = """
 Exercício um.
 
+Confirmação do enunciado.
+Primeiro, confirme se eu li o exercício corretamente.
+Calcule a integral dupla de x, sinal de subtração, três vezes y ao quadrado, sobre a região R.
+A região R possui x variando de zero até dois.
+E y variando de um até dois.
+Fim da confirmação do enunciado.
+
 Prévia.
 Neste exercício, a região é um retângulo.
 O x varia de zero até dois.
@@ -46,7 +53,8 @@ Feche o parêntese.
 Agora escreva d y.
 Depois escreva d x.
 
-Na linha de baixo, mantenha a integral de zero até dois.
+Agora pule uma linha.
+Na nova linha, mantenha a integral de zero até dois.
 Agora abra um colchete.
 Escreva x vezes y.
 Agora coloque o sinal de subtração.
@@ -56,7 +64,8 @@ Agora coloque no colchete o limite inferior um.
 E o limite superior dois.
 Depois escreva d x.
 
-Na linha de baixo, mantenha a integral de zero até dois.
+Agora pule uma linha.
+Na nova linha, mantenha a integral de zero até dois.
 Abra um parêntese.
 Escreva dois x.
 Agora coloque o sinal de subtração.
@@ -70,7 +79,8 @@ Escreva o número um.
 Feche o parêntese.
 Depois escreva d x.
 
-Na linha de baixo, mantenha a integral de zero até dois.
+Agora pule uma linha.
+Na nova linha, mantenha a integral de zero até dois.
 Abra um parêntese.
 Escreva x.
 Agora coloque o sinal de subtração.
@@ -78,7 +88,8 @@ Escreva o número sete.
 Feche o parêntese.
 Depois escreva d x.
 
-Na linha de baixo, abra um colchete.
+Agora pule uma linha.
+Na nova linha, abra um colchete.
 Agora faça uma fração.
 No numerador, escreva x ao quadrado.
 No denominador, escreva o número dois.
@@ -88,7 +99,8 @@ Feche o colchete.
 Agora coloque no colchete o limite inferior zero.
 E o limite superior dois.
 
-Na linha de baixo, abra um parêntese.
+Agora pule uma linha.
+Na nova linha, abra um parêntese.
 Agora faça uma fração.
 No numerador, escreva dois ao quadrado.
 No denominador, escreva o número dois.
@@ -104,7 +116,8 @@ Agora coloque o sinal de subtração.
 Escreva sete vezes zero.
 Feche o parêntese.
 
-Na linha de baixo, escreva o número dois.
+Agora pule uma linha.
+Na nova linha, escreva o número dois.
 Agora coloque o sinal de subtração.
 Escreva o número catorze.
 Agora coloque o sinal de subtração.
@@ -174,7 +187,7 @@ def gerar_audio():
             model="gpt-4o-mini-tts",
             voice="alloy",
             input=TEXTO_AUDIO,
-            speed=0.50,
+            speed=0.5,
             instructions=(
                 "Fale em português brasileiro. "
                 "Use voz calma, clara e didática, como um professor orientando "
