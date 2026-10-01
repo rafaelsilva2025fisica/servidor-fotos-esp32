@@ -1563,29 +1563,41 @@ def arquivo_galeria(nome):
 # Se a ESP estiver desconectada, mantém o áudio pendente.
 # =========================================================
 def despachar_audio_para_esp(audio_id):
+    """
+    Envia NOVO_AUDIO pelo WebSocket atual.
+    Só mantém pendente quando NÃO conseguiu enviar.
+    Se ws.send() funcionou, limpa a pendência imediatamente para impedir reenvio infinito.
+    """
     global esp_ws, audio_pendente_esp
 
-    comando = "NOVO_AUDIO|" + audio_id
-
     with lock:
-        audio_pendente_esp = audio_id
         socket_atual = esp_ws
 
     if socket_atual is None:
-        adicionar_log_ia("PENDENTE", f"Áudio {audio_id} aguardando WebSocket ativo da ESP32.")
+        with lock:
+            audio_pendente_esp = audio_id
+        adicionar_log_ia("PENDENTE", f"ESP32 sem WebSocket ativo. Áudio {audio_id} aguardando reconexão.")
         return False
 
     try:
-        socket_atual.send(comando)
-        adicionar_log_ia("ENVIO", f"Enviado pelo WebSocket atual da ESP32: {comando}")
-        adicionar_log_esp32("OK", f"Comando {comando} enviado para a ESP32.")
-        return True
-    except Exception as erro:
-        # Não perde o áudio: ele continuará pendente e será reenviado na reconexão.
+        socket_atual.send(f"NOVO_AUDIO|{audio_id}")
+
+        # O comando foi entregue ao socket atual: NÃO deve ser reenviado em cada reconexão.
         with lock:
+            if audio_pendente_esp == audio_id:
+                audio_pendente_esp = None
+
+        adicionar_log_ia("ENVIO", f"Enviado pelo WebSocket atual da ESP32: NOVO_AUDIO|{audio_id}")
+        adicionar_log_esp32("OK", f"Comando NOVO_AUDIO|{audio_id} enviado para a ESP32.")
+        return True
+
+    except Exception as erro:
+        # Só fica pendente se o send realmente falhou.
+        with lock:
+            audio_pendente_esp = audio_id
             if esp_ws is socket_atual:
                 esp_ws = None
-        adicionar_log_ia("PENDENTE", f"WebSocket fechou durante o envio. Áudio {audio_id} ficou pendente: {type(erro).__name__}: {erro}")
+        adicionar_log_ia("PENDENTE", f"Falha no envio. Áudio {audio_id} aguardará reconexão: {type(erro).__name__}: {erro}")
         adicionar_log_esp32("AVISO", f"Áudio {audio_id} pendente para a próxima conexão da ESP32.")
         return False
 
@@ -1648,15 +1660,12 @@ def consumir_clique_bancada():
 
 def executar_escolha_fisica(ws, quantidade):
     # Se a ESP terminou os 15 s com 0, a bancada pode substituir esse 0.
-    try:
-        n = int(n)
-    except Exception:
-        pass
-    if n == 0:
+    quantidade = int(quantidade)
+    if quantidade == 0:
         clique_remoto = consumir_clique_bancada()
         if clique_remoto is not None:
             adicionar_log_ia("BANCADA", f"ESP enviou 0; usando escolha da bancada: {clique_remoto} clique(s).")
-            n = clique_remoto
+            quantidade = int(clique_remoto)
         else:
             adicionar_log_ia("BANCADA", "ESP enviou 0; nenhuma escolha na página. Mantendo 0.")
 
