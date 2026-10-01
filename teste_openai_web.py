@@ -52,7 +52,7 @@ def teste_openai():
             mimetype="text/plain",
         )
 
-    foto = _foto_mais_recente()
+    foto = os.path.join(BASE_DIR, "prova.jpeg")
 
     if not foto:
         return Response(
