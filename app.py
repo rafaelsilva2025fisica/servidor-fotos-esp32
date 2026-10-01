@@ -9,7 +9,7 @@ import imageio_ffmpeg
 from datetime import datetime
 from teste_openai_web import teste_openai_bp
 from teste_audio_web import teste_audio_bp
-from teste_controle_web import teste_controle_bp, interpretar_cliques, zerar_sessao, ESTADO as ESTADO_CONTROLE, LOCK as LOCK_CONTROLE, _menu_apos_exercicio, _gerar_tts
+from teste_controle_web import teste_controle_bp, interpretar_cliques, zerar_sessao, iniciar_ultima_foto, ESTADO as ESTADO_CONTROLE, LOCK as LOCK_CONTROLE, _menu_apos_exercicio, _gerar_tts
 
 app = Flask(__name__)
 
@@ -1588,6 +1588,23 @@ def preparar_audio_tts_para_esp(texto):
 
 def executar_escolha_fisica(ws, quantidade):
     """Interpreta CLIQUES|N usando exatamente o mesmo menu da bancada."""
+    # REGRA DE START: 0 cliques sem sessão preparada inicia a última foto.
+    # Por enquanto, na bancada, a "última foto" continua sendo prova.jpeg.
+    with LOCK_CONTROLE:
+        preparado = bool(ESTADO_CONTROLE.get("preparado"))
+
+    if quantidade == 0 and not preparado:
+        adicionar_log_esp32("INFO", "0 cliques sem sessão ativa: iniciando leitura da última foto.")
+        inicio = iniciar_ultima_foto()
+        if not inicio.get("ok"):
+            adicionar_log_esp32("ERRO", "Falha ao iniciar última foto: " + str(inicio.get("erro")))
+            return
+        adicionar_log_esp32("OK", f"Foto analisada. {inicio.get('quantidade', 0)} exercício(s) encontrado(s).")
+        audio_id = preparar_audio_tts_para_esp(inicio["menu"])
+        ws.send("NOVO_AUDIO|" + audio_id)
+        adicionar_log_esp32("OK", f"Leitura inicial da foto enviada para a ESP32: {audio_id}")
+        return
+
     resultado = interpretar_cliques(quantidade)
     if not resultado.get("ok"):
         adicionar_log_esp32("AVISO", "Cliques sem opção válida: " + str(resultado.get("erro")))
