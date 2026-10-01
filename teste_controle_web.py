@@ -35,27 +35,34 @@ def _numero_por_extenso(n):
     return nomes.get(n, str(n))
 
 def _prompt():
-    return r'''Você é o cérebro de um dispositivo de estudo por áudio. Analise a fotografia de uma prova de matemática e produza roteiros faláveis em português brasileiro.
+    return r"""Você é o cérebro visual de um dispositivo com câmera e saída de áudio. Analise a fotografia como ela realmente é. A imagem pode mostrar QUALQUER COISA: uma prova, folha, livro, texto, objeto, teto, parede, ambiente, pessoa, equipamento, ou uma foto ruim.
 
-REGRAS:
-- Leia cuidadosamente. Não adivinhe conteúdo ilegível.
+OBJETIVO PRINCIPAL:
+Primeiro diga, de forma curta, clara e natural em português brasileiro, o que você consegue ver com segurança. Não presuma que existe uma prova. Não invente texto, objetos ou exercícios.
+
+QUALIDADE:
+- Se a imagem estiver escura, desfocada, cortada, distante ou ilegível, diga isso claramente.
+- Descreva somente o que for visível com segurança.
+- Se houver texto parcialmente legível, diferencie o que consegue ler do que não consegue.
+- Se a foto estiver ruim a ponto de não permitir uma análise útil, recomende tirar outra foto.
+
+SE FOR UMA PROVA, LISTA OU FOLHA COM EXERCÍCIOS:
+- Identifique somente os exercícios legíveis.
+- Para cada exercício legível, produza também um bloco de resolução no formato abaixo.
 - Resolva internamente e confira a matemática.
-- Para CADA exercício legível, produza exatamente estas seções: CONFIRMAÇÃO DO ENUNCIADO, PRÉVIA, GUIA DE ESCRITA, RESPOSTA FINAL.
-- Na CONFIRMAÇÃO, repita os dados essenciais: números, sinais, expoentes, equações, limites e domínio.
-- Na PRÉVIA, explique brevemente o caminho e já informe a resposta final.
-- O GUIA é um GPS de escrita: comandos curtos, uma ação de escrita por comando. Não leia expressões longas de uma vez.
-- A resolução pode ser enxugada para reduzir o áudio, mas nenhuma passagem importante pode parecer inventada. Antes de uma transformação não óbvia, explique em uma frase curta o que está sendo feito.
-- Sempre que mudar de linha diga primeiro: "Agora pule uma linha." Depois: "Na nova linha..."
-- Diferencie sinal de subtração de número negativo.
-- Para frações, diga numerador e denominador.
-- Diga claramente qual variável está sendo integrada e o que permanece constante quando isso for relevante.
+- Na CONFIRMAÇÃO, repita os dados essenciais.
+- Na PRÉVIA, explique brevemente o caminho e informe a resposta final.
+- O GUIA DE ESCRITA deve ser um GPS de escrita com comandos curtos.
 - Não use LaTeX na fala.
-- Fale sempre de forma natural, como uma pessoa ensinando. Nunca use a expressão 'tais que'. Em domínios, prefira frases como: 'Na região R, x varia de ... até ...'.
-- Não inclua opções de botões dentro dos exercícios; o servidor acrescentará o menu dinamicamente.
+- Não inclua opções de botões dentro dos exercícios; o servidor monta o menu.
 
-FORMATO OBRIGATÓRIO, sem texto fora dele:
+FORMATO OBRIGATÓRIO:
 SITUAÇÃO DA FOTO
-<resumo curto dizendo quantos exercícios foram encontrados e quais estão legíveis>
+<descrição curta, natural e fiel do que está visível>
+
+Se NÃO houver exercícios legíveis, TERMINE após a descrição acima.
+
+Se houver exercícios legíveis, continue:
 
 <<<EXERCICIO 1>>>
 CONFIRMAÇÃO DO ENUNCIADO
@@ -68,11 +75,15 @@ RESPOSTA FINAL
 ...
 <<<FIM EXERCICIO 1>>>
 
-Repita o bloco para todos os exercícios legíveis, numerando em ordem.'''
+Repita somente para os exercícios legíveis, numerando em ordem."""
 
 def _separar_saida(texto):
     m = re.search(r'SITUAÇÃO DA FOTO\s*(.*?)(?=<<<EXERCICIO\s+\d+>>>)', texto, re.S | re.I)
-    situacao = m.group(1).strip() if m else 'Foto analisada.'
+    if m:
+        situacao = m.group(1).strip()
+    else:
+        # Quando não há exercícios, toda a resposta pode ser apenas a descrição visual.
+        situacao = re.sub(r'^\s*SITUAÇÃO DA FOTO\s*', '', texto, flags=re.I).strip() or 'Foto analisada.'
     roteiros = {}
     padrao = re.compile(r'<<<EXERCICIO\s+(\d+)>>>\s*(.*?)\s*<<<FIM EXERCICIO\s+\1>>>', re.S | re.I)
     for num, corpo in padrao.findall(texto):
@@ -88,9 +99,14 @@ def _menu_inicial(situacao, roteiros):
             partes.append(f'Para ouvir a resolução do exercício {i}, aperte o botão {_numero_por_extenso(i)} vez' + ('' if i == 1 else 'es') + '.')
         partes.append(f'Para tirar uma nova foto e começar tudo de novo, aperte o botão {_numero_por_extenso(qtd + 1)} vezes.')
         partes.append('Depois que este áudio terminar, você terá quinze segundos para escolher.')
+    else:
+        partes.append('Não identifiquei exercícios legíveis nesta imagem.')
+        partes.append('Para analisar outra imagem, aperte o botão físico de foto novamente.')
     return '\n'.join(partes)
 
 def _opcoes_iniciais(roteiros):
+    if not roteiros:
+        return {}
     opcoes = {n: {'acao':'exercicio','exercicio':n} for n in sorted(roteiros)}
     opcoes[len(roteiros)+1] = {'acao':'nova_foto'}
     return opcoes
@@ -126,6 +142,8 @@ def interpretar_cliques(n):
         # Depois de um exercício, repete somente o menu de opções daquele exercício.
         if n == 0:
             ESTADO['ultima_escolha'] = 0
+            if not ESTADO['roteiros']:
+                return {'ok':True,'acao':'repetir_menu','cliques':0,'texto':ESTADO['menu_texto'],'menu':'visual','novas_opcoes':{}}
             audio_atual = ESTADO.get('audio_atual', 'menu')
             if audio_atual == 'menu':
                 texto_menu = ESTADO['menu_texto']
@@ -184,8 +202,6 @@ def iniciar_ultima_foto(caminho_foto=None):
         cliente = OpenAI(api_key=chave)
         resposta = cliente.responses.create(model='gpt-5.6-luna', input=[{'role':'user','content':[{'type':'input_text','text':_prompt()},{'type':'input_image','image_url':_data_url(foto_para_analisar),'detail':'high'}]}])
         situacao, roteiros = _separar_saida(resposta.output_text)
-        if not roteiros:
-            raise RuntimeError('A IA não devolveu nenhum bloco de exercício no formato esperado.')
         menu = _menu_inicial(situacao, roteiros)
         opcoes = _opcoes_iniciais(roteiros)
         with LOCK:
