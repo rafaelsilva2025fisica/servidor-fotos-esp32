@@ -50,6 +50,7 @@ REGRAS:
 - Para frações, diga numerador e denominador.
 - Diga claramente qual variável está sendo integrada e o que permanece constante quando isso for relevante.
 - Não use LaTeX na fala.
+- Fale sempre de forma natural, como uma pessoa ensinando. Nunca use a expressão 'tais que'. Em domínios, prefira frases como: 'Na região R, x varia de ... até ...'.
 - Não inclua opções de botões dentro dos exercícios; o servidor acrescentará o menu dinamicamente.
 
 FORMATO OBRIGATÓRIO, sem texto fora dele:
@@ -85,24 +86,51 @@ def _menu_inicial(situacao, roteiros):
         partes.append(f'Já preparei {qtd} áudios de resolução separados.')
         for i in sorted(roteiros):
             partes.append(f'Para ouvir a resolução do exercício {i}, aperte o botão {_numero_por_extenso(i)} vez' + ('' if i == 1 else 'es') + '.')
-        partes.append('Depois que este áudio terminar, você terá vinte segundos para escolher.')
+        partes.append(f'Para tirar uma nova foto e começar tudo de novo, aperte o botão {_numero_por_extenso(qtd + 1)} vezes.')
+        partes.append('Depois que este áudio terminar, você terá quinze segundos para escolher.')
     return '\n'.join(partes)
 
+def _opcoes_iniciais(roteiros):
+    opcoes = {n: {'acao':'exercicio','exercicio':n} for n in sorted(roteiros)}
+    opcoes[len(roteiros)+1] = {'acao':'nova_foto'}
+    return opcoes
+
 def _menu_apos_exercicio(atual, roteiros):
-    # Opções continuam dinâmicas no servidor. Para este primeiro teste:
-    # 1 repete o atual; depois oferecemos os demais exercícios.
-    opcoes = {1: atual}
+    opcoes = {1: {'acao':'exercicio','exercicio':atual}}
     candidatos = [n for n in sorted(roteiros) if n != atual]
     for clique, exercicio in enumerate(candidatos, start=2):
-        opcoes[clique] = exercicio
+        opcoes[clique] = {'acao':'exercicio','exercicio':exercicio}
+    clique_foto = len(opcoes) + 1
+    opcoes[clique_foto] = {'acao':'nova_foto'}
     frases = [f'Fim da resolução do exercício {atual}.']
     frases.append('Para ouvir novamente esta resolução, aperte o botão uma vez.')
-    for clique, exercicio in opcoes.items():
-        if clique == 1:
+    for clique, destino in opcoes.items():
+        if clique == 1 or destino['acao'] != 'exercicio':
             continue
-        frases.append(f'Para ir para a resolução do exercício {exercicio}, aperte o botão {_numero_por_extenso(clique)} vezes.')
-    frases.append('Depois que este áudio terminar, você terá vinte segundos para escolher.')
+        frases.append(f"Para ir para a resolução do exercício {destino['exercicio']}, aperte o botão {_numero_por_extenso(clique)} vezes.")
+    frases.append(f'Para tirar uma nova foto e começar tudo de novo, aperte o botão {_numero_por_extenso(clique_foto)} vezes.')
+    frases.append('Depois que este áudio terminar, você terá quinze segundos para escolher.')
     return '\n'.join(frases), opcoes
+
+def zerar_sessao():
+    with LOCK:
+        ESTADO.update({'preparado':False,'processando':False,'erro':None,'situacao':'','menu_texto':'','opcoes':{},'roteiros':{},'audio_atual':'menu','ultima_escolha':None})
+
+def interpretar_cliques(n):
+    with LOCK:
+        if not ESTADO['preparado']:
+            return {'ok':False,'erro':'Nenhuma prova preparada.'}
+        destino = ESTADO['opcoes'].get(n)
+        if destino is None:
+            return {'ok':False,'erro':f'{n} clique(s) não correspondem ao menu atual.','opcoes':ESTADO['opcoes']}
+        ESTADO['ultima_escolha'] = n
+        if destino['acao'] == 'nova_foto':
+            return {'ok':True,'acao':'nova_foto','cliques':n}
+        exercicio = destino['exercicio']
+        ESTADO['audio_atual'] = f'exercicio_{exercicio}'
+        menu_final, novas_opcoes = _menu_apos_exercicio(exercicio, ESTADO['roteiros'])
+        ESTADO['opcoes'] = novas_opcoes
+        return {'ok':True,'acao':'exercicio','cliques':n,'exercicio':exercicio,'novas_opcoes':novas_opcoes}
 
 def _gerar_tts(texto):
     chave = os.getenv('OPENAI_API_KEY')
@@ -134,7 +162,7 @@ def preparar():
         if not roteiros:
             raise RuntimeError('A IA não devolveu nenhum bloco de exercício no formato esperado.')
         menu = _menu_inicial(situacao, roteiros)
-        opcoes = {n:n for n in sorted(roteiros)}
+        opcoes = _opcoes_iniciais(roteiros)
         with LOCK:
             ESTADO.update({'preparado':True,'situacao':situacao,'menu_texto':menu,'opcoes':opcoes,'roteiros':roteiros,'audio_atual':'menu','ultima_escolha':None})
         return jsonify({'ok':True,'quantidade':len(roteiros),'situacao':situacao,'menu':menu,'opcoes':opcoes})
@@ -154,19 +182,17 @@ def cliques():
     dados = request.get_json(silent=True) or {}
     try: n = int(dados.get('cliques', 0))
     except Exception: n = 0
+    resultado = interpretar_cliques(n)
+    if not resultado.get('ok'):
+        return jsonify(resultado), 400
+    if resultado['acao'] == 'nova_foto':
+        zerar_sessao()
+        return jsonify({'ok':True,'cliques':n,'acao':'nova_foto','comando':'TIRAR_FOTO','mensagem':'Sessão zerada. Na integração real, a ESP32 tira uma nova foto.'})
+    num = resultado['exercicio']
     with LOCK:
-        if not ESTADO['preparado']:
-            return jsonify({'ok':False,'erro':'Prepare a prova primeiro.'}), 409
-        destino = ESTADO['opcoes'].get(n)
-        if destino is None:
-            return jsonify({'ok':False,'erro':f'{n} clique(s) não correspondem a uma opção do menu atual.','opcoes':ESTADO['opcoes']}), 400
-        ESTADO['ultima_escolha'] = n
-        ESTADO['audio_atual'] = f'exercicio_{destino}'
-        texto_base = ESTADO['roteiros'][destino]
-        menu_final, novas_opcoes = _menu_apos_exercicio(destino, ESTADO['roteiros'])
-        ESTADO['opcoes'] = novas_opcoes
-        texto = texto_base + '\n\n' + menu_final
-    return jsonify({'ok':True,'cliques':n,'exercicio':destino,'audio_url':f'/teste-controle/audio/exercicio/{destino}.mp3?t={__import__("time").time()}','novas_opcoes':novas_opcoes,'texto':texto})
+        texto_base = ESTADO['roteiros'][num]
+        menu_final, _ = _menu_apos_exercicio(num, ESTADO['roteiros'])
+    return jsonify({'ok':True,'cliques':n,'acao':'exercicio','exercicio':num,'audio_url':f'/teste-controle/audio/exercicio/{num}.mp3?t={__import__("time").time()}','novas_opcoes':resultado['novas_opcoes'],'texto':texto_base+'\n\n'+menu_final})
 
 @teste_controle_bp.route('/teste-controle/audio/menu.mp3')
 def audio_menu():
@@ -190,4 +216,4 @@ def audio_exercicio(num):
 
 @teste_controle_bp.route('/teste-controle')
 def pagina():
-    return Response(r'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teste do cérebro</title><style>body{font-family:Arial;max-width:850px;margin:30px auto;padding:0 18px;background:#0d1117;color:#e6edf3}button{padding:14px 18px;margin:5px;border:0;border-radius:9px;font-weight:bold;cursor:pointer}.prep{background:#238636;color:white}.click{background:#1f6feb;color:white}audio{width:100%;margin:18px 0}.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin:15px 0}pre{white-space:pre-wrap;word-break:break-word}</style></head><body><h1>Teste do cérebro — prova.jpeg</h1><div class="box"><button class="prep" onclick="preparar()">1. ANALISAR PROVA E PREPARAR</button><p id="status">Aguardando.</p></div><div class="box"><h2>Áudio atual</h2><audio id="player" controls></audio><button onclick="tocarMenu()">▶ TOCAR MENU</button></div><div class="box"><h2>Simular botão físico</h2><p>Estes botões enviam somente a quantidade de cliques.</p><button class="click" onclick="clicar(1)">1 CLIQUE</button><button class="click" onclick="clicar(2)">2 CLIQUES</button><button class="click" onclick="clicar(3)">3 CLIQUES</button><button class="click" onclick="clicar(4)">4 CLIQUES</button></div><div class="box"><h2>Estado / texto</h2><pre id="saida"></pre></div><script>const p=document.getElementById('player'),s=document.getElementById('status'),o=document.getElementById('saida');async function preparar(){s.textContent='Analisando prova.jpeg...';let r=await fetch('/api/teste-controle/preparar',{method:'POST'});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent='Pronto: '+d.quantidade+' exercício(s).';p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play();}else{s.textContent='Erro: '+d.erro}}function tocarMenu(){p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play()}async function clicar(n){s.textContent='Enviando somente CLIQUES:'+n;let r=await fetch('/api/teste-controle/cliques',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliques:n})});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent='Servidor interpretou '+n+' clique(s) e escolheu exercício '+d.exercicio;p.src=d.audio_url;p.play();}else{s.textContent='Erro: '+d.erro}}</script></body></html>''', mimetype='text/html; charset=utf-8')
+    return Response(r'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teste do cérebro</title><style>body{font-family:Arial;max-width:850px;margin:30px auto;padding:0 18px;background:#0d1117;color:#e6edf3}button{padding:14px 18px;margin:5px;border:0;border-radius:9px;font-weight:bold;cursor:pointer}.prep{background:#238636;color:white}.click{background:#1f6feb;color:white}audio{width:100%;margin:18px 0}.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin:15px 0}pre{white-space:pre-wrap;word-break:break-word}</style></head><body><h1>Teste do cérebro — prova.jpeg</h1><div class="box"><button class="prep" onclick="preparar()">1. ANALISAR PROVA E PREPARAR</button><p id="status">Aguardando.</p></div><div class="box"><h2>Áudio atual</h2><audio id="player" controls></audio><button onclick="tocarMenu()">▶ TOCAR MENU</button></div><div class="box"><h2>Simular botão físico</h2><p>Estes botões enviam somente a quantidade de cliques.</p><button class="click" onclick="clicar(1)">1 CLIQUE</button><button class="click" onclick="clicar(2)">2 CLIQUES</button><button class="click" onclick="clicar(3)">3 CLIQUES</button><button class="click" onclick="clicar(4)">4 CLIQUES</button></div><div class="box"><h2>Estado / texto</h2><pre id="saida"></pre></div><script>const p=document.getElementById('player'),s=document.getElementById('status'),o=document.getElementById('saida');async function preparar(){s.textContent='Analisando prova.jpeg...';let r=await fetch('/api/teste-controle/preparar',{method:'POST'});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent='Pronto: '+d.quantidade+' exercício(s).';p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play();}else{s.textContent='Erro: '+d.erro}}function tocarMenu(){p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play()}async function clicar(n){s.textContent='Enviando somente CLIQUES:'+n;let r=await fetch('/api/teste-controle/cliques',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliques:n})});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){if(d.acao==='nova_foto'){s.textContent='NOVA FOTO escolhida. Sessão zerada.';p.removeAttribute('src');p.load();}else{s.textContent='Servidor interpretou '+n+' clique(s) e escolheu exercício '+d.exercicio;p.src=d.audio_url;p.play();}}else{s.textContent='Erro: '+d.erro}}</script></body></html>''', mimetype='text/html; charset=utf-8')
