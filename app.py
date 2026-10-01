@@ -1461,6 +1461,47 @@ def tirar_foto():
 
 
 # =========================================================
+# FLUXO AUTOMÁTICO: FOTO RECEBIDA -> IA -> ÁUDIO -> ESP32
+# =========================================================
+def processar_foto_recebida_automaticamente(caminho_foto, nome_foto):
+    """
+    Executa em thread depois que /upload-foto já respondeu à ESP32.
+    Assim o upload não fica esperando IA/TTS e não causa timeout no ESP.
+    """
+    try:
+        adicionar_log_ia("FOTO", f"Nova foto recebida: {nome_foto}. Iniciando análise automaticamente.")
+        adicionar_log_esp32("INFO", f"Foto {nome_foto} entregue à IA automaticamente.")
+
+        # Nova foto = nova sessão. Evita reaproveitar menu da foto anterior.
+        zerar_sessao()
+
+        inicio = iniciar_ultima_foto(caminho_foto)
+        if not inicio.get("ok"):
+            erro = str(inicio.get("erro", "Falha desconhecida na análise."))
+            adicionar_log_ia("ERRO", f"Falha ao analisar {nome_foto}: {erro}")
+            adicionar_log_esp32("ERRO", f"IA não conseguiu analisar a foto: {erro}")
+            return
+
+        adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {inicio.get('quantidade', 0)}")
+        adicionar_log_ia("LEITURA", inicio.get("menu", ""))
+
+        adicionar_log_ia("ÁUDIO", "Criando o áudio da leitura inicial...")
+        audio_id = preparar_audio_tts_para_esp(inicio["menu"])
+        adicionar_log_ia("ÁUDIO", f"WAV da leitura inicial criado: {audio_id}")
+
+        if despachar_audio_para_esp(audio_id):
+            adicionar_log_ia("FLUXO", "Foto -> IA -> áudio -> ESP32 concluído.")
+        else:
+            adicionar_log_ia("PENDENTE", f"Áudio {audio_id} pronto; aguardando WebSocket da ESP32.")
+
+    except Exception as e:
+        erro = f"{type(e).__name__}: {e}"
+        adicionar_log_ia("ERRO", f"Fluxo automático da foto falhou: {erro}")
+        adicionar_log_esp32("ERRO", f"Fluxo automático da foto falhou: {erro}")
+        print("ERRO FLUXO AUTOMATICO FOTO:", erro, flush=True)
+
+
+# =========================================================
 # RECEBER FOTO DA ESP32 + GALERIA
 # =========================================================
 
@@ -1509,6 +1550,14 @@ def upload_foto():
         flush=True
     )
     adicionar_log_esp32("OK", f"Foto recebida pelo servidor: {nome} ({tamanho} bytes).")
+
+    # Dispara a IA imediatamente, mas fora da requisição HTTP.
+    # A ESP recebe HTTP 201 rápido, reabre o WebSocket e fica pronta para NOVO_AUDIO.
+    threading.Thread(
+        target=processar_foto_recebida_automaticamente,
+        args=(caminho, nome),
+        daemon=True
+    ).start()
 
     return jsonify({
         "ok": True,
@@ -1670,35 +1719,14 @@ def executar_escolha_fisica(ws, quantidade):
             adicionar_log_ia("BANCADA", "ESP enviou 0; nenhuma escolha na página. Mantendo 0.")
 
     """Interpreta CLIQUES|N usando exatamente o mesmo menu da bancada."""
-    # REGRA DE START: 0 cliques sem sessão preparada inicia a última foto.
-    # Por enquanto, na bancada, a "última foto" continua sendo prova.jpeg.
+    # O START agora é a própria chegada da foto em /upload-foto.
+    # 0 cliques serve apenas para repetir o menu quando já existe sessão.
     with LOCK_CONTROLE:
         preparado = bool(ESTADO_CONTROLE.get("preparado"))
 
     if quantidade == 0 and not preparado:
-        adicionar_log_esp32("INFO", "0 cliques sem sessão ativa: iniciando leitura da última foto.")
-        adicionar_log_ia("AÇÃO", "0 cliques sem sessão ativa = START da última foto. Iniciando análise.")
-        inicio = iniciar_ultima_foto()
-        if not inicio.get("ok"):
-            adicionar_log_esp32("ERRO", "Falha ao iniciar última foto: " + str(inicio.get("erro")))
-            return
-        adicionar_log_esp32("OK", f"Foto analisada. {inicio.get('quantidade', 0)} exercício(s) encontrado(s).")
-        adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {inicio.get('quantidade', 0)}")
-        adicionar_log_ia("LEITURA", inicio.get("menu", ""))
-
-        # A leitura inicial NUNCA deve terminar apenas no texto:
-        # gera o WAV e despacha para a ESP imediatamente.
-        try:
-            adicionar_log_ia("ÁUDIO", "Criando o áudio da leitura inicial...")
-            audio_id = preparar_audio_tts_para_esp(inicio["menu"])
-            adicionar_log_ia("ÁUDIO", f"WAV da leitura inicial criado: {audio_id}")
-
-            despachar_audio_para_esp(audio_id)
-        except Exception as e:
-            erro = f"Falha ao criar/enviar áudio inicial: {type(e).__name__}: {e}"
-            adicionar_log_ia("ERRO", erro)
-            adicionar_log_esp32("ERRO", erro)
-            print(erro, flush=True)
+        adicionar_log_ia("AÇÃO", "0 cliques sem sessão ativa: ignorado. O START ocorre automaticamente quando uma foto é recebida.")
+        adicionar_log_esp32("INFO", "0 cliques ignorado: aguardando nova foto para iniciar a IA.")
         return
 
     resultado = interpretar_cliques(quantidade)
