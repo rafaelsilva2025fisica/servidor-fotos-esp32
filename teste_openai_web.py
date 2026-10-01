@@ -79,7 +79,8 @@ A prévia deve explicar:
 - qual técnica importante aparecerá;
 - o caminho geral da resolução.
 
-NÃO revele antecipadamente a resposta final.
+Na prévia,já começa informando também qual será a resposta final do exercício.
+Isso é importante para o aluno já saber onde a resolução deverá chegar.
 
 A prévia é explicação.
 O GPS que vem depois é ditado de escrita.
