@@ -3,7 +3,7 @@ import re
 import base64
 import mimetypes
 import threading
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify, request, current_app
 from openai import OpenAI
 
 teste_controle_bp = Blueprint('teste_controle', __name__)
@@ -256,6 +256,23 @@ def audio_exercicio(num):
     try: return Response(_gerar_tts(texto), mimetype='audio/mpeg', headers={'Cache-Control':'no-store'})
     except Exception as e: return Response(f'ERRO TTS: {e}', status=500)
 
+
+@teste_controle_bp.route('/api/teste-controle/simular-esp', methods=['POST'])
+def simular_esp():
+    try:
+        dados = request.get_json(silent=True) or {}
+        n = int(dados.get('cliques', -1))
+        if n < 0:
+            return jsonify(ok=False, erro='Quantidade de cliques inválida.'), 400
+        callback = current_app.extensions.get('registrar_clique_bancada')
+        if not callable(callback):
+            return jsonify(ok=False, erro='Callback da bancada não registrado no app.py.'), 500
+        callback(n)
+        return jsonify(ok=True, cliques=n,
+            mensagem=f'Bancada armada com {n} clique(s). Aguarde a ESP terminar os 15 segundos.')
+    except Exception as e:
+        return jsonify(ok=False, erro=f'{type(e).__name__}: {e}'), 500
+
 @teste_controle_bp.route('/teste-controle')
 def pagina():
-    return Response(r'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teste do cérebro</title><style>body{font-family:Arial;max-width:850px;margin:30px auto;padding:0 18px;background:#0d1117;color:#e6edf3}button{padding:14px 18px;margin:5px;border:0;border-radius:9px;font-weight:bold;cursor:pointer}.prep{background:#238636;color:white}.click{background:#1f6feb;color:white}audio{width:100%;margin:18px 0}.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin:15px 0}pre{white-space:pre-wrap;word-break:break-word}</style></head><body><h1>Teste do cérebro — prova.jpeg</h1><div class="box"><button class="prep" onclick="preparar()">1. ANALISAR PROVA E PREPARAR</button><p id="status">Aguardando.</p></div><div class="box"><h2>Áudio atual</h2><audio id="player" controls></audio><button onclick="tocarMenu()">▶ TOCAR MENU</button></div><div class="box"><h2>Simular botão físico</h2><p>Estes botões enviam somente a quantidade de cliques.</p><button class="click" onclick="clicar(0)">0 CLIQUES</button><button class="click" onclick="clicar(1)">1 CLIQUE</button><button class="click" onclick="clicar(2)">2 CLIQUES</button><button class="click" onclick="clicar(3)">3 CLIQUES</button><button class="click" onclick="clicar(4)">4 CLIQUES</button></div><div class="box"><h2>Estado / texto</h2><pre id="saida"></pre></div><script>const p=document.getElementById('player'),s=document.getElementById('status'),o=document.getElementById('saida');async function preparar(){s.textContent='Analisando prova.jpeg...';let r=await fetch('/api/teste-controle/preparar',{method:'POST'});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent='Pronto: '+d.quantidade+' exercício(s).';p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play();}else{s.textContent='Erro: '+d.erro}}function tocarMenu(){p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play()}async function clicar(n){s.textContent='Enviando somente CLIQUES:'+n;let r=await fetch('/api/teste-controle/cliques',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliques:n})});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){if(d.acao==='repetir_menu'){s.textContent='0 cliques: repetindo o último menu.';p.src='/teste-controle/audio/repetir-menu.mp3?t='+Date.now();p.play();}else if(d.acao==='nova_foto'){s.textContent='NOVA FOTO escolhida. Sessão zerada.';p.removeAttribute('src');p.load();}else{s.textContent='Servidor interpretou '+n+' clique(s) e escolheu exercício '+d.exercicio;p.src=d.audio_url;p.play();}}else{s.textContent='Erro: '+d.erro}}</script></body></html>''', mimetype='text/html; charset=utf-8')
+    return Response(r'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teste do cérebro</title><style>body{font-family:Arial;max-width:850px;margin:30px auto;padding:0 18px;background:#0d1117;color:#e6edf3}button{padding:14px 18px;margin:5px;border:0;border-radius:9px;font-weight:bold;cursor:pointer}.prep{background:#238636;color:white}.click{background:#1f6feb;color:white}audio{width:100%;margin:18px 0}.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin:15px 0}pre{white-space:pre-wrap;word-break:break-word}</style></head><body><h1>Teste do cérebro — prova.jpeg</h1><div class="box"><button class="prep" onclick="preparar()">1. ANALISAR PROVA E PREPARAR</button><p id="status">Aguardando.</p></div><div class="box"><h2>Áudio atual</h2><audio id="player" controls></audio><button onclick="tocarMenu()">▶ TOCAR MENU</button></div><div class="box"><h2>Simular botão físico</h2><p>Escolha aqui durante os 15 segundos. A escolha fica armada. Quando a ESP enviar 0, o servidor usa esta opção. Se você não escolher nada, mantém o 0 da ESP.</p><button class="click" onclick="clicar(0)">0 CLIQUES</button><button class="click" onclick="clicar(1)">1 CLIQUE</button><button class="click" onclick="clicar(2)">2 CLIQUES</button><button class="click" onclick="clicar(3)">3 CLIQUES</button><button class="click" onclick="clicar(4)">4 CLIQUES</button></div><div class="box"><h2>Estado / texto</h2><pre id="saida"></pre></div><script>const p=document.getElementById('player'),s=document.getElementById('status'),o=document.getElementById('saida');async function preparar(){s.textContent='Analisando prova.jpeg...';let r=await fetch('/api/teste-controle/preparar',{method:'POST'});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent='Pronto: '+d.quantidade+' exercício(s).';p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play();}else{s.textContent='Erro: '+d.erro}}function tocarMenu(){p.src='/teste-controle/audio/menu.mp3?t='+Date.now();p.play()}async function clicar(n){s.textContent='Armando '+n+' clique(s) na bancada...';let r=await fetch('/api/teste-controle/simular-esp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliques:n})});let d=await r.json();o.textContent=JSON.stringify(d,null,2);if(d.ok){s.textContent=d.mensagem||('Simulado CLIQUES|'+n+' e enviado ao fluxo real da ESP32.');}else{s.textContent='Erro: '+d.erro}}</script></body></html>''', mimetype='text/html; charset=utf-8')
