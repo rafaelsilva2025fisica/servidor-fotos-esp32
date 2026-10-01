@@ -1723,14 +1723,17 @@ def executar_escolha_fisica(ws, quantidade):
             adicionar_log_ia("BANCADA", "ESP enviou 0; nenhuma escolha na página. Mantendo 0.")
 
     """Interpreta CLIQUES|N usando exatamente o mesmo menu da bancada."""
-    # O START agora é a própria chegada da foto em /upload-foto.
-    # 0 cliques serve apenas para repetir o menu quando já existe sessão.
-    with LOCK_CONTROLE:
-        preparado = bool(ESTADO_CONTROLE.get("preparado"))
 
-    if quantidade == 0 and not preparado:
-        adicionar_log_ia("AÇÃO", "0 cliques sem sessão ativa: ignorado. O START ocorre automaticamente quando uma foto é recebida.")
-        adicionar_log_esp32("INFO", "0 cliques ignorado: aguardando nova foto para iniciar a IA.")
+    # REGRA DEFINITIVA DO ZERO:
+    # depois do áudio a ESP reinicia e envia CLIQUES|0.
+    # Se a bancada NÃO substituiu esse zero por uma escolha real, 0 apenas
+    # encerra a sessão atual e deixa a ESP livre no PING/PONG, aguardando
+    # o botão físico de uma nova foto. Não repete menu, não chama IA e
+    # não envia áudio.
+    if quantidade == 0:
+        zerar_sessao()
+        adicionar_log_ia("AÇÃO", "0 cliques = fim do ciclo. Sessão encerrada; ESP liberada em PING/PONG para nova foto.")
+        adicionar_log_esp32("OK", "0 cliques recebido. Nenhuma ação pendente; mantendo comunicação PING/PONG.")
         return
 
     resultado = interpretar_cliques(quantidade)
