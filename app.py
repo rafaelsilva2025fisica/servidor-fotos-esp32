@@ -1742,10 +1742,21 @@ def texto_menu_exercicios(quantidade):
     return " ".join(partes)
 
 
+def preparar_texto_para_tts(texto):
+    """Evita pronuncias ruins de diferenciais matematicos no TTS."""
+    import re
+    texto = str(texto or "")
+    texto = re.sub(r'(?<![A-Za-z])dx(?![A-Za-z])', 'd x', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'(?<![A-Za-z])dy(?![A-Za-z])', 'd y', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'(?<![A-Za-z])dz(?![A-Za-z])', 'd z', texto, flags=re.IGNORECASE)
+    return texto
+
+
 def criar_e_enviar_audio_ia(texto, menu=False):
     global esp_ws, aguardando_resposta_menu
 
     texto = (texto or "").strip()
+    texto = preparar_texto_para_tts(texto)
     if not texto:
         adicionar_log_esp32("ERRO", "IA retornou texto vazio; áudio não criado.")
         return False
@@ -2260,19 +2271,29 @@ def websocket_esp32(ws):
                                             "Antes de produzir a resposta, entenda e resolva o exercício internamente e confira a matemática. "
                                             "Não exponha raciocínio interno, tentativas ou pensamentos em voz alta. "
                                             "A resposta será convertida em áudio para uma pessoa que está escrevendo a resolução no caderno. "
-                                            "Primeiro diga: 'Prévia.' Em poucas frases, explique o que será feito, qual é a região ou dados importantes, "
-                                            "quais limites aparecem quando houver integrais, qual variável será integrada primeiro e a ordem da resolução. "
+                                            "Primeiro diga: 'Prévia.' Explique o enunciado de forma enxugada, mas bem explicativa: diga o que foi dado, "
+                                            "o que a questão pede, o significado da região ou dos dados importantes e o caminho que será usado. "
+                                            "A pessoa deve conseguir entender a questão apenas ouvindo essa prévia. Evite teoria que não seja necessária para resolver. "
+                                            "Quando houver integrais, explique a região, de onde vêm os limites, qual variável está na integral interna e será resolvida primeiro, "
+                                            "e qual será resolvida depois. Se os limites vierem de curvas, retas, planos, cilindros ou superfícies, explique brevemente como delimitam a região. "
                                             "Depois diga exatamente: 'Agora começa o guia de escrita.' "
                                             "A partir daí, dite a resolução NA ORDEM EXATA em que deve ser escrita no caderno. "
                                             "Quando realmente começar uma nova etapa matemática, diga 'Na linha de baixo'. "
                                             "Quando parte da expressão continuar igual, diga 'Mantenha' e informe o que permanece. "
                                             "Em fórmulas e contas, fale explicitamente os sinais necessários, parênteses, colchetes, frações, numerador, "
-                                            "denominador, expoentes, raízes, limites inferior e superior e diferenciais como d x, d y ou d z. "
+                                            "denominador, expoentes, raízes, limites inferior e superior. "
+                                            "Diferencie obrigatoriamente subtração de valor negativo: quando o menos estiver entre termos fazendo uma subtração, "
+                                            "fale 'sinal menos de subtração'; quando um número tiver valor negativo, fale 'negativo' antes do número. "
+                                            "Quando for necessário ditar explicitamente o símbolo de um valor negativo, fale 'sinal menos de valor negativo'. "
+                                            "Nunca trate automaticamente todo sinal de menos como subtração. "
+                                            "Para diferenciais, escreva e fale sempre d x, d y e d z com espaço; nunca escreva dx, dy ou dz grudados. "
                                             "Em substituição de limites, deixe claro onde entra o limite superior e onde entra o inferior. "
                                             "Não diga comandos inúteis como 'pule uma linha' repetidamente; use 'Na linha de baixo' somente quando a escrita realmente mudar de etapa. "
                                             "Se for uma INTEGRAL, siga obrigatoriamente: prévia da região e dos limites; montagem da integral; resolução da integral interna; "
                                             "aplicação dos limites; simplificação; integral seguinte; aplicação dos limites; cálculo final. "
                                             "Para integrais, a montagem dos limites deve ficar muito clara para que o aluno consiga copiá-la apenas ouvindo. "
+                                            "Ao integrar, diga diretamente o resultado daquela integração; não use os termos 'integral primitiva', 'primitiva', "
+                                            "'antiderivada' ou 'função primitiva', a menos que o próprio enunciado pergunte isso. "
                                             "Se NÃO for integral, adapte naturalmente ao tipo de exercício, mas mantenha: prévia curta, guia de escrita e resposta final. "
                                             "Se for um problema de Física, prefira: dados; fórmula; conversões necessárias; substituição; cálculo; resposta final. "
                                             "Se houver itens a, b, c, resolva somente as subdivisões que pertencem ao exercício escolhido e deixe claro quando muda de item. "
