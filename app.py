@@ -55,6 +55,25 @@ quantidade_exercicios_sessao = 0
 logs_esp32 = []
 MAX_LOGS_ESP32 = 300
 
+# STATUS VISUAL DA IA
+status_ia = {
+    "estado": "AGUARDANDO",
+    "titulo": "⚪ IA AGUARDANDO",
+    "detalhe": "Aguardando uma nova foto ou uma escolha de exercício.",
+    "inicio": time.time()
+}
+
+def atualizar_status_ia(estado, titulo, detalhe):
+    global status_ia
+    with lock:
+        status_ia = {
+            "estado": estado,
+            "titulo": titulo,
+            "detalhe": detalhe,
+            "inicio": time.time()
+        }
+    print(f"STATUS IA [{estado}] {titulo} - {detalhe}", flush=True)
+
 def adicionar_log_esp32(nivel, mensagem):
     nivel = (nivel or "INFO").upper().strip()
     if nivel not in {"INFO", "OK", "AVISO", "ERRO"}:
@@ -166,6 +185,18 @@ h1 {
     color: #8b949e;
     margin-bottom: 25px;
 }
+
+.ia-status-card {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 18px;
+}
+.ia-status-topo { font-size: 13px; color: #8b949e; margin-bottom: 10px; font-weight: bold; }
+#iaStatusTitulo { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+#iaStatusDetalhe { color: #c9d1d9; line-height: 1.45; }
+#iaStatusTempo { color: #8b949e; font-size: 13px; margin-top: 10px; }
 
 .status-card {
     background: #0d1117;
@@ -546,6 +577,13 @@ audio {
             Servidor de áudio ESP32
         </div>
 
+        <div class="ia-status-card">
+            <div class="ia-status-topo">🤖 STATUS DA IA</div>
+            <div id="iaStatusTitulo">⚪ IA AGUARDANDO</div>
+            <div id="iaStatusDetalhe">Aguardando uma nova foto ou uma escolha de exercício.</div>
+            <div id="iaStatusTempo">Neste estado há 0 s</div>
+        </div>
+
         <div class="status-card">
 
             <div id="espStatus" class="offline">
@@ -786,6 +824,22 @@ const fecharGaleria = document.getElementById("fecharGaleria");
 // ======================================================
 // STATUS ESP32
 // ======================================================
+
+async function atualizarStatusIA() {
+    try {
+        const resposta = await fetch("/api/status-ia?t=" + Date.now(), { cache: "no-store" });
+        const dados = await resposta.json();
+        document.getElementById("iaStatusTitulo").textContent = dados.titulo || "⚪ IA AGUARDANDO";
+        document.getElementById("iaStatusDetalhe").textContent = dados.detalhe || "";
+        document.getElementById("iaStatusTempo").textContent =
+            "Neste estado há " + (dados.segundos || 0) + " s";
+    } catch (erro) {
+        document.getElementById("iaStatusTitulo").textContent = "🔴 STATUS DA IA INDISPONÍVEL";
+        document.getElementById("iaStatusDetalhe").textContent = "Não foi possível consultar o estado atual.";
+    }
+}
+atualizarStatusIA();
+setInterval(atualizarStatusIA, 1000);
 
 async function atualizarESP() {
 
@@ -1171,6 +1225,20 @@ def status():
 # =========================================================
 # RECEBER WEBM E CONVERTER PARA WAV
 # =========================================================
+
+@app.route("/api/status-ia")
+def api_status_ia():
+    with lock:
+        dados = dict(status_ia)
+    segundos = max(0, int(time.time() - dados.get("inicio", time.time())))
+    return jsonify({
+        "ok": True,
+        "estado": dados.get("estado", "AGUARDANDO"),
+        "titulo": dados.get("titulo", "⚪ IA AGUARDANDO"),
+        "detalhe": dados.get("detalhe", ""),
+        "segundos": segundos
+    })
+
 
 @app.route("/enviar-audio", methods=["POST"])
 def enviar_audio():
@@ -1564,6 +1632,7 @@ def criar_e_enviar_audio_ia(texto, menu=False):
     caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
 
     try:
+        atualizar_status_ia("CRIANDO_AUDIO", "🟠 CRIANDO ÁUDIO...", "A resposta da IA está pronta. Agora estou transformando o texto em voz.")
         adicionar_log_esp32("INFO", "Criando voz da resposta da IA...")
 
         resposta_audio = openai_client.audio.speech.create(
@@ -1638,6 +1707,11 @@ def criar_e_enviar_audio_ia(texto, menu=False):
             "OK",
             f"Áudio da IA criado e enviado à ESP32: {audio_id} ({tamanho_wav} bytes)."
         )
+        atualizar_status_ia(
+            "AUDIO_ENVIADO",
+            "📤 ÁUDIO ENVIADO PARA ESP32",
+            "O áudio está pronto e a ESP32 foi avisada para baixar e reproduzir."
+        )
 
         # A ESP sempre contará 15 s. O servidor só aceita a resposta
         # quando este áudio realmente contém um menu.
@@ -1650,6 +1724,7 @@ def criar_e_enviar_audio_ia(texto, menu=False):
     except Exception as erro:
         print(">>> ERRO CRIANDO/ENVIANDO AUDIO DA IA:", repr(erro), flush=True)
         adicionar_log_esp32("ERRO", f"Falha no áudio da IA: {erro}")
+        atualizar_status_ia("ERRO", "🔴 ERRO AO CRIAR ÁUDIO", "Falha durante a criação ou envio do áudio. Consulte os logs.")
         return False
 
 
@@ -1666,6 +1741,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
         return
 
     try:
+        atualizar_status_ia("LENDO_FOTO", "🟣 IA LENDO A FOTO...", "A foto chegou. Estou identificando os exercícios visíveis.")
         adicionar_log_esp32("INFO", f"IA iniciando análise da foto nova: {nome}")
         print(f">>> IA: ANALISANDO SOMENTE A FOTO NOVA: {nome} <<<", flush=True)
 
@@ -1731,6 +1807,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
             nome_foto_sessao_atual = nome
             quantidade_exercicios_sessao = quantidade
         adicionar_log_esp32("OK", f"IA identificou {quantidade} exercício(s) na foto nova.")
+        atualizar_status_ia("IDENTIFICADOS", f"🟢 {quantidade} EXERCÍCIO(S) IDENTIFICADO(S)", "A leitura terminou. Agora vou preparar o áudio com as opções.")
 
         texto_menu = (
             f"Identifiquei {quantidade} exercício" + ("" if quantidade == 1 else "s") + ". "
@@ -1742,6 +1819,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
     except Exception as erro:
         print(">>> ERRO NA ANALISE DA IA:", repr(erro), flush=True)
         adicionar_log_esp32("ERRO", f"Falha da IA ao analisar {nome}: {erro}")
+        atualizar_status_ia("ERRO", "🔴 ERRO NA IA", "Falha durante a análise da foto. Consulte os logs.")
 
 
 # =========================================================
@@ -1945,6 +2023,14 @@ def websocket_esp32(ws):
                         flush=True
                     )
                     adicionar_log_esp32("OK", f"ESP32 confirmou o áudio WAV {audio_id}.")
+                    with lock:
+                        esperando_menu_agora = aguardando_resposta_menu
+                    if esperando_menu_agora:
+                        atualizar_status_ia(
+                            "AGUARDANDO_ESCOLHA",
+                            "👆 AGUARDANDO SUA ESCOLHA",
+                            "O áudio chegou à ESP32. Depois que terminar, escolha nos 15 segundos."
+                        )
 
             # ESCOLHA DE EXERCICIO PELOS CLIQUES
             elif mensagem.startswith("CLIQUES|"):
@@ -1985,6 +2071,11 @@ def websocket_esp32(ws):
                         "OK",
                         "15 s sem clique: sessão encerrada e exercícios apagados."
                     )
+                    atualizar_status_ia(
+                        "AGUARDANDO",
+                        "⚪ IA AGUARDANDO",
+                        "Sessão encerrada. Aguardando uma nova foto."
+                    )
                     continue
 
                 with lock:
@@ -2008,6 +2099,11 @@ def websocket_esp32(ws):
                 adicionar_log_esp32(
                     "OK",
                     f"Exercício {quantidade} selecionado; IA relendo diretamente a foto original."
+                )
+                atualizar_status_ia(
+                    "RESOLVENDO",
+                    f"🟣 IA RESOLVENDO EXERCÍCIO {quantidade}...",
+                    "Estou relendo a foto original e preparando a resolução guiada."
                 )
 
                 def resolver_exercicio_guiado_da_foto(numero, caminho_imagem, nome_imagem, total_exercicios):
