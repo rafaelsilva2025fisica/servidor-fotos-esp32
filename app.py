@@ -3,10 +3,12 @@ from flask_sock import Sock
 import threading
 import time
 import os
+import base64
 import uuid
 import subprocess
 import imageio_ffmpeg
 from datetime import datetime
+from openai import OpenAI
 
 app = Flask(__name__)
 
@@ -25,6 +27,12 @@ AUDIO_DIR = "/tmp/audios"
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
+
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-luna").strip()
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
 
 lock = threading.Lock()
 
@@ -1452,6 +1460,55 @@ def tirar_foto():
 
 
 
+
+# =========================================================
+# IA - ANALISA SOMENTE A FOTO NOVA RECEBIDA DA ESP32
+# =========================================================
+
+def analisar_foto_nova_com_ia(caminho, nome):
+    if openai_client is None:
+        print(">>> IA NAO CONFIGURADA: OPENAI_API_KEY AUSENTE <<<", flush=True)
+        adicionar_log_esp32("AVISO", "Foto recebida, mas OPENAI_API_KEY não está configurada.")
+        return
+
+    try:
+        adicionar_log_esp32("INFO", f"IA iniciando análise da foto nova: {nome}")
+        print(f">>> IA: ANALISANDO SOMENTE A FOTO NOVA: {nome} <<<", flush=True)
+
+        with open(caminho, "rb") as arquivo:
+            imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
+
+        resposta = openai_client.responses.create(
+            model=OPENAI_MODEL,
+            input=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Analise esta foto recebida agora da ESP32. "
+                            "Por enquanto, apenas descreva de forma curta o que está legível "
+                            "e diga se existe um exercício ou questão legível na imagem."
+                        )
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": "data:image/jpeg;base64," + imagem_b64
+                    }
+                ]
+            }]
+        )
+
+        texto = (resposta.output_text or "").strip()
+        print(">>> IA: RESPOSTA <<<", flush=True)
+        print(texto, flush=True)
+        adicionar_log_esp32("OK", f"IA analisou {nome}: {texto[:350]}")
+
+    except Exception as erro:
+        print(">>> ERRO NA ANALISE DA IA:", repr(erro), flush=True)
+        adicionar_log_esp32("ERRO", f"Falha da IA ao analisar {nome}: {erro}")
+
+
 # =========================================================
 # RECEBER FOTO DA ESP32 + GALERIA
 # =========================================================
@@ -1501,6 +1558,14 @@ def upload_foto():
         flush=True
     )
     adicionar_log_esp32("OK", f"Foto recebida pelo servidor: {nome} ({tamanho} bytes).")
+
+
+    # A IA é disparada SOMENTE por esta foto nova já salva e validada.
+    threading.Thread(
+        target=analisar_foto_nova_com_ia,
+        args=(caminho, nome),
+        daemon=True
+    ).start()
 
     return jsonify({
         "ok": True,
