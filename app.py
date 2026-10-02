@@ -1596,14 +1596,24 @@ def processar_foto_recebida_automaticamente(caminho_foto, nome_foto):
             return
 
         qtd = inicio.get('quantidade', 0)
+
         if qtd:
+            # Quando ha exercicios, mantem exatamente o menu detalhado criado pela IA.
+            texto_audio_inicial = inicio.get("menu", "")
             adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {qtd}")
         else:
-            adicionar_log_ia("FOTO", "Foto analisada como imagem geral; nenhum exercício legível identificado.")
-        adicionar_log_ia("LEITURA", inicio.get("menu", ""))
+            # Quando nao ha exercicios, NAO descreve ambiente, objetos, luz etc.
+            # O audio deve ser curto e orientar a esperar o leitor de botoes terminar.
+            texto_audio_inicial = (
+                "Nenhum exercício identificado. "
+                "Tire outra foto depois de 15 segundos do leitor de botões."
+            )
+            adicionar_log_ia("FOTO", "Nenhum exercício legível identificado.")
+
+        adicionar_log_ia("LEITURA", texto_audio_inicial)
 
         adicionar_log_ia("ÁUDIO", "Criando o áudio da leitura inicial...")
-        audio_id = preparar_audio_tts_para_esp(inicio["menu"])
+        audio_id = preparar_audio_tts_para_esp(texto_audio_inicial)
         adicionar_log_ia("ÁUDIO", f"WAV da leitura inicial criado: {audio_id}")
 
         if despachar_audio_para_esp(audio_id):
