@@ -1474,6 +1474,29 @@ def tirar_foto():
 # Reutiliza exatamente o protocolo NOVO_AUDIO|ID já existente.
 # =========================================================
 
+def quantidade_por_extenso(numero):
+    nomes = {
+        1: "uma", 2: "duas", 3: "três", 4: "quatro", 5: "cinco",
+        6: "seis", 7: "sete", 8: "oito", 9: "nove", 10: "dez"
+    }
+    return nomes.get(numero, str(numero))
+
+
+def texto_menu_exercicios(quantidade):
+    partes = []
+    for numero in range(1, quantidade + 1):
+        vezes = quantidade_por_extenso(numero)
+        termo = "vez" if numero == 1 else "vezes"
+        partes.append(
+            f"Para ouvir a resolução do exercício {numero}, aperte {vezes} {termo} o botão."
+        )
+    partes.append(
+        "Depois deste áudio, você terá quinze segundos para escolher. "
+        "Se não apertar o botão, a sessão será encerrada."
+    )
+    return " ".join(partes)
+
+
 def criar_e_enviar_audio_ia(texto, menu=False):
     global esp_ws
 
@@ -1647,17 +1670,11 @@ def analisar_foto_nova_com_ia(caminho, nome):
         quantidade = len(exercicios)
         adicionar_log_esp32("OK", f"IA identificou {quantidade} exercício(s) na foto nova.")
 
-        partes = [
-            f"Identifiquei {quantidade} exercício" + ("" if quantidade == 1 else "s") + "."
-        ]
-        for numero in range(1, quantidade + 1):
-            if numero == 1:
-                partes.append("Para ouvir o exercício 1, aperte uma vez o botão.")
-            else:
-                partes.append(f"Para ouvir o exercício {numero}, aperte {numero} vezes o botão.")
-        partes.append("Depois deste áudio, você terá quinze segundos para escolher.")
+        texto_menu = (
+            f"Identifiquei {quantidade} exercício" + ("" if quantidade == 1 else "s") + ". "
+            + texto_menu_exercicios(quantidade)
+        )
 
-        texto_menu = " ".join(partes)
         criar_e_enviar_audio_ia(texto_menu, menu=True)
 
     except Exception as erro:
@@ -1869,34 +1886,71 @@ def websocket_esp32(ws):
             # ESCOLHA DE EXERCICIO PELOS CLIQUES
             elif mensagem.startswith("CLIQUES|"):
                 partes = mensagem.split("|", 1)
-
                 try:
                     quantidade = int(partes[1]) if len(partes) == 2 else 0
                 except ValueError:
                     quantidade = 0
 
-                # 0 cliques = nenhuma ação.
                 if quantidade <= 0:
-                    adicionar_log_esp32("INFO", "0 cliques: nenhuma ação executada.")
+                    with lock:
+                        exercicios_atuais.clear()
+                    print(">>> SESSAO ENCERRADA: CLIQUES|0 <<<", flush=True)
+                    adicionar_log_esp32("OK", "Sessão encerrada; exercícios da foto apagados.")
                     continue
 
                 with lock:
                     lista_exercicios = list(exercicios_atuais)
 
                 if quantidade > len(lista_exercicios):
-                    adicionar_log_esp32(
-                        "AVISO",
-                        f"Escolha {quantidade} inválida; existem {len(lista_exercicios)} exercício(s)."
-                    )
+                    adicionar_log_esp32("AVISO", f"Escolha {quantidade} inválida.")
                     continue
 
                 exercicio = lista_exercicios[quantidade - 1]
-                adicionar_log_esp32("OK", f"Exercício {quantidade} selecionado pelos cliques.")
+                total = len(lista_exercicios)
+                adicionar_log_esp32("OK", f"Exercício {quantidade} selecionado; preparando resolução guiada.")
 
-                texto_audio = f"Exercício {quantidade}. {exercicio}"
+                def resolver_exercicio_guiado(numero, enunciado, total_exercicios):
+                    try:
+                        resposta = openai_client.responses.create(
+                            model=OPENAI_MODEL,
+                            input=[{
+                                "role": "user",
+                                "content": [{
+                                    "type": "input_text",
+                                    "text": (
+                                        f"Resolva o exercício {numero} abaixo em português do Brasil. "
+                                        "A resposta será ouvida por uma pessoa que vai copiar a resolução no caderno. "
+                                        "Guie a escrita linha por linha, de forma curta e clara. "
+                                        "Diga explicitamente: escreva, na próxima linha, agora substitua, "
+                                        "agora calcule, agora simplifique e resultado, quando forem apropriados. "
+                                        "Ao falar fórmulas, diga exatamente como devem ser escritas. "
+                                        "Não use markdown nem tabelas. Não invente dados. "
+                                        "Resolva somente este exercício.\n\n"
+                                        f"ENUNCIADO:\n{enunciado}"
+                                    )
+                                }]
+                            }]
+                        )
+                        resolucao = (resposta.output_text or "").strip()
+                        if not resolucao:
+                            resolucao = "Não consegui gerar a resolução deste exercício."
+
+                        texto_final = (
+                            f"Exercício {numero}. {resolucao} "
+                            "Agora você pode escolher novamente. "
+                            + texto_menu_exercicios(total_exercicios)
+                        )
+
+                        # Também é MENU: no fim abre novamente os 15 segundos.
+                        criar_e_enviar_audio_ia(texto_final, menu=True)
+
+                    except Exception as erro:
+                        print(">>> ERRO AO RESOLVER EXERCICIO:", repr(erro), flush=True)
+                        adicionar_log_esp32("ERRO", f"Falha ao resolver exercício {numero}: {erro}")
+
                 threading.Thread(
-                    target=criar_e_enviar_audio_ia,
-                    args=(texto_audio,),
+                    target=resolver_exercicio_guiado,
+                    args=(quantidade, exercicio, total),
                     daemon=True
                 ).start()
 
