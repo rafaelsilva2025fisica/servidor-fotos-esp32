@@ -53,7 +53,7 @@ quantidade_exercicios_sessao = 0
 
 
 logs_esp32 = []
-MAX_LOGS_ESP32 = 300
+MAX_LOGS_ESP32 = 20
 
 # STATUS VISUAL DA IA
 status_ia = {
@@ -732,7 +732,7 @@ async function carregarLogs() {
             throw new Error(dados.erro || "Erro ao consultar logs");
         }
 
-        ultimoSnapshotLogs = dados.logs || [];
+        ultimoSnapshotLogs = (dados.logs || []).slice(0, 20);
         renderizarLogs();
 
     } catch (erro) {
@@ -756,7 +756,7 @@ filtrosLogs.forEach(function(botao) {
 atualizarLogsBtn.onclick = carregarLogs;
 
 copiarLogsBtn.onclick = async function() {
-    const itens = ultimoSnapshotLogs.slice(0, 100).reverse();
+    const itens = ultimoSnapshotLogs.slice(0, 20).reverse();
 
     if (itens.length === 0) {
         const original = copiarLogsBtn.textContent;
