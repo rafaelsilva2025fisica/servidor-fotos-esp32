@@ -1553,6 +1553,7 @@ def criar_e_enviar_audio_ia(texto, menu=False):
             return False
 
         comando = ("NOVO_AUDIO_MENU|" if menu else "NOVO_AUDIO|") + audio_id
+        print(f">>> WS PARA ESP32: {comando} <<<", flush=True)
         socket_atual.send(comando)
 
         print("================================", flush=True)
