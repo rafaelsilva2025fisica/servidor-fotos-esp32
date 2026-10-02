@@ -1636,7 +1636,8 @@ def analisar_foto_nova_com_ia(caminho, nome):
             exercicios_atuais = []
             adicionar_log_esp32("AVISO", "IA não encontrou exercício legível na foto.")
             criar_e_enviar_audio_ia(
-                "Não consegui identificar nenhum exercício legível nesta imagem."
+                "Não consegui identificar nenhum exercício legível nesta imagem.",
+                menu=True
             )
             return
 
