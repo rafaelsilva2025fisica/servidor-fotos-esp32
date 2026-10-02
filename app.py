@@ -47,6 +47,9 @@ audios = {}
 # =========================================================
 exercicios_atuais = []
 aguardando_resposta_menu = False
+foto_sessao_atual = None
+nome_foto_sessao_atual = None
+quantidade_exercicios_sessao = 0
 
 
 logs_esp32 = []
@@ -1613,7 +1616,7 @@ def criar_e_enviar_audio_ia(texto, menu=False):
 # =========================================================
 
 def analisar_foto_nova_com_ia(caminho, nome):
-    global exercicios_atuais
+    global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao
 
     if openai_client is None:
         print(">>> IA NAO CONFIGURADA: OPENAI_API_KEY AUSENTE <<<", flush=True)
@@ -1664,7 +1667,11 @@ def analisar_foto_nova_com_ia(caminho, nome):
         exercicios = [item.strip() for item in encontrados if item.strip()]
 
         if not exercicios:
-            exercicios_atuais = []
+            with lock:
+                exercicios_atuais.clear()
+                foto_sessao_atual = None
+                nome_foto_sessao_atual = None
+                quantidade_exercicios_sessao = 0
             adicionar_log_esp32("AVISO", "IA não encontrou exercício legível na foto.")
             criar_e_enviar_audio_ia(
                 "Não consegui identificar nenhum exercício legível nesta imagem.",
@@ -1672,10 +1679,15 @@ def analisar_foto_nova_com_ia(caminho, nome):
             )
             return
 
-        with lock:
-            exercicios_atuais = exercicios
-
         quantidade = len(exercicios)
+
+        with lock:
+            # A transcrição serve apenas para contar/montar o menu.
+            # A resolução usará novamente a FOTO ORIGINAL.
+            exercicios_atuais = exercicios
+            foto_sessao_atual = caminho
+            nome_foto_sessao_atual = nome
+            quantidade_exercicios_sessao = quantidade
         adicionar_log_esp32("OK", f"IA identificou {quantidade} exercício(s) na foto nova.")
 
         texto_menu = (
@@ -1801,7 +1813,7 @@ def arquivo_galeria(nome):
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
-    global aguardando_resposta_menu
+    global aguardando_resposta_menu, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao
 
     global esp_ws
 
@@ -1923,6 +1935,9 @@ def websocket_esp32(ws):
                 if quantidade <= 0:
                     with lock:
                         exercicios_atuais.clear()
+                        foto_sessao_atual = None
+                        nome_foto_sessao_atual = None
+                        quantidade_exercicios_sessao = 0
                     print(">>> SESSAO ENCERRADA: CLIQUES|0 <<<", flush=True)
                     adicionar_log_esp32(
                         "OK",
@@ -1931,63 +1946,82 @@ def websocket_esp32(ws):
                     continue
 
                 with lock:
-                    lista_exercicios = list(exercicios_atuais)
+                    caminho_foto = foto_sessao_atual
+                    nome_foto = nome_foto_sessao_atual
+                    total = quantidade_exercicios_sessao
 
-                if quantidade > len(lista_exercicios):
+                if not caminho_foto or not os.path.exists(caminho_foto):
+                    adicionar_log_esp32("ERRO", "Não existe foto original ativa para esta sessão.")
+                    continue
+
+                if quantidade > total:
                     with lock:
                         aguardando_resposta_menu = True
                     adicionar_log_esp32(
                         "AVISO",
-                        f"Escolha {quantidade} inválida; servidor continua aguardando menu."
+                        f"Escolha {quantidade} inválida; existem {total} exercício(s) nesta foto."
                     )
                     continue
 
-                exercicio = lista_exercicios[quantidade - 1]
-                total = len(lista_exercicios)
-                adicionar_log_esp32("OK", f"Exercício {quantidade} selecionado; preparando resolução guiada.")
+                adicionar_log_esp32(
+                    "OK",
+                    f"Exercício {quantidade} selecionado; IA relendo diretamente a foto original."
+                )
 
-                def resolver_exercicio_guiado(numero, enunciado, total_exercicios):
+                def resolver_exercicio_guiado_da_foto(numero, caminho_imagem, nome_imagem, total_exercicios):
                     try:
+                        with open(caminho_imagem, "rb") as arquivo:
+                            imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
+
                         resposta = openai_client.responses.create(
                             model=OPENAI_MODEL,
                             input=[{
                                 "role": "user",
-                                "content": [{
-                                    "type": "input_text",
-                                    "text": (
-                                        f"Resolva o exercício {numero} abaixo em português do Brasil. "
-                                        "A resposta será ouvida por uma pessoa que vai copiar a resolução no caderno. "
-                                        "Guie a escrita linha por linha, de forma curta e clara. "
-                                        "Diga explicitamente: escreva, na próxima linha, agora substitua, "
-                                        "agora calcule, agora simplifique e resultado, quando forem apropriados. "
-                                        "Ao falar fórmulas, diga exatamente como devem ser escritas. "
-                                        "Não use markdown nem tabelas. Não invente dados. "
-                                        "Resolva somente este exercício.\n\n"
-                                        f"ENUNCIADO:\n{enunciado}"
-                                    )
-                                }]
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": (
+                                            f"Observe novamente esta imagem original e resolva SOMENTE o exercício {numero} "
+                                            "que aparece nela. Leia o enunciado, números, fórmulas, limites, expoentes, "
+                                            "símbolos e subdivisões diretamente da imagem. "
+                                            "NÃO use uma transcrição anterior como fonte da resolução. "
+                                            "A resposta será ouvida por uma pessoa que escreverá a resolução no caderno. "
+                                            "Guie a escrita linha por linha, de forma curta, clara e didática. "
+                                            "Use expressões como: escreva, na próxima linha, agora substitua, agora calcule, "
+                                            "agora simplifique e resultado. Ao falar fórmulas, diga exatamente como escrevê-las. "
+                                            "Não use markdown nem tabelas. Não invente dados. "
+                                            "Se o exercício escolhido não estiver legível, diga que não conseguiu lê-lo."
+                                        )
+                                    },
+                                    {
+                                        "type": "input_image",
+                                        "image_url": "data:image/jpeg;base64," + imagem_b64
+                                    }
+                                ]
                             }]
                         )
+
                         resolucao = (resposta.output_text or "").strip()
                         if not resolucao:
-                            resolucao = "Não consegui gerar a resolução deste exercício."
+                            resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
 
                         texto_final = (
                             f"Exercício {numero}. {resolucao} "
                             "Agora você pode escolher novamente. "
                             + texto_menu_exercicios(total_exercicios)
                         )
-
-                        # Também é MENU: no fim abre novamente os 15 segundos.
                         criar_e_enviar_audio_ia(texto_final, menu=True)
 
                     except Exception as erro:
-                        print(">>> ERRO AO RESOLVER EXERCICIO:", repr(erro), flush=True)
-                        adicionar_log_esp32("ERRO", f"Falha ao resolver exercício {numero}: {erro}")
+                        print(">>> ERRO AO RESOLVER PELA FOTO:", repr(erro), flush=True)
+                        adicionar_log_esp32(
+                            "ERRO",
+                            f"Falha ao resolver exercício {numero} pela foto {nome_imagem}: {erro}"
+                        )
 
                 threading.Thread(
-                    target=resolver_exercicio_guiado,
-                    args=(quantidade, exercicio, total),
+                    target=resolver_exercicio_guiado_da_foto,
+                    args=(quantidade, caminho_foto, nome_foto, total),
                     daemon=True
                 ).start()
 
