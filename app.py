@@ -1399,7 +1399,9 @@ def enviar_audio():
         audios[audio_id] = {
             "arquivo": caminho_wav,
             "recebido": False,
-            "criado": time.time()
+            "criado": time.time(),
+            "menu": False,
+            "tentativas_recuperacao": 0
         }
 
         socket_atual = esp_ws
@@ -1480,6 +1482,126 @@ def baixar_audio(audio_id):
         as_attachment=False,
         download_name="audio.wav"
     )
+
+
+# =========================================================
+# RECUPERACAO AUTOMATICA DE AUDIO
+# A ESP32 chama este endpoint quando o download/gravacao falha.
+# O servidor NAO chama a IA novamente: reenvia o mesmo WAV pronto.
+# =========================================================
+
+@app.route("/audio-download-erro/<audio_id>", methods=["GET"])
+def audio_download_erro(audio_id):
+    global esp_ws, aguardando_resposta_menu
+
+    with lock:
+        dados = audios.get(audio_id)
+        socket_atual = esp_ws
+
+        if dados is None:
+            adicionar_log_esp32(
+                "ERRO",
+                f"ESP32 avisou falha do áudio {audio_id}, mas esse áudio não existe mais no servidor."
+            )
+            atualizar_status_ia(
+                "ERRO_AUDIO",
+                "🔴 ERRO NO ÁUDIO",
+                "A ESP32 informou falha, mas o arquivo do áudio não foi encontrado no servidor."
+            )
+            return jsonify({"ok": False, "erro": "Áudio não encontrado."}), 404
+
+        caminho = dados.get("arquivo")
+        eh_menu = bool(dados.get("menu", False))
+        tentativas = int(dados.get("tentativas_recuperacao", 0)) + 1
+        dados["tentativas_recuperacao"] = tentativas
+        dados["recebido"] = False
+
+    if not caminho or not os.path.exists(caminho):
+        adicionar_log_esp32(
+            "ERRO",
+            f"Falha no áudio {audio_id}: WAV não existe mais no disco do servidor."
+        )
+        atualizar_status_ia(
+            "ERRO_AUDIO",
+            "🔴 WAV NÃO ENCONTRADO",
+            "Não foi possível reenviar o último áudio porque o arquivo WAV não existe mais."
+        )
+        return jsonify({"ok": False, "erro": "Arquivo WAV não existe."}), 404
+
+    # Evita loop infinito caso exista problema persistente de rede/SD.
+    if tentativas > 2:
+        adicionar_log_esp32(
+            "ERRO",
+            f"Áudio {audio_id} falhou novamente. Limite de 2 reenvios automáticos atingido."
+        )
+        atualizar_status_ia(
+            "ERRO_AUDIO",
+            "🔴 ÁUDIO FALHOU NOVAMENTE",
+            "O mesmo áudio já foi reenviado duas vezes. Verifique a rede ou o cartão SD antes de tentar novamente."
+        )
+        return jsonify({
+            "ok": False,
+            "erro": "Limite de reenvios automáticos atingido.",
+            "tentativas": tentativas - 1
+        }), 409
+
+    if socket_atual is None or not esp_esta_online():
+        adicionar_log_esp32(
+            "ERRO",
+            f"Não foi possível reenviar {audio_id}: ESP32 desconectada."
+        )
+        atualizar_status_ia(
+            "ERRO_AUDIO",
+            "🔴 ESP32 DESCONECTADA",
+            "O áudio falhou, mas não posso reenviá-lo enquanto a ESP32 estiver desconectada."
+        )
+        return jsonify({"ok": False, "erro": "ESP32 desconectada."}), 503
+
+    comando = ("NOVO_AUDIO_MENU|" if eh_menu else "NOVO_AUDIO|") + audio_id
+
+    try:
+        atualizar_status_ia(
+            "REENVIANDO_AUDIO",
+            "🟠 REENVIANDO ÚLTIMO ÁUDIO...",
+            f"A ESP32 informou falha no download/gravação. Estou reenviando o mesmo WAV. Tentativa {tentativas} de 2."
+        )
+        adicionar_log_esp32(
+            "AVISO",
+            f"Falha no áudio {audio_id}. Reenviando automaticamente o mesmo WAV; tentativa {tentativas} de 2."
+        )
+
+        socket_atual.send(comando)
+
+        # Se era um áudio com opções, o menu continua válido.
+        if eh_menu:
+            with lock:
+                aguardando_resposta_menu = True
+
+        adicionar_log_esp32(
+            "INFO",
+            f"Comando de recuperação enviado à ESP32: {comando}"
+        )
+
+        return jsonify({
+            "ok": True,
+            "audio_id": audio_id,
+            "reenviado": True,
+            "menu": eh_menu,
+            "tentativa": tentativas,
+            "comando": comando
+        })
+
+    except Exception as erro:
+        adicionar_log_esp32(
+            "ERRO",
+            f"Falha ao reenviar o áudio {audio_id}: {erro}"
+        )
+        atualizar_status_ia(
+            "ERRO_AUDIO",
+            "🔴 FALHA AO REENVIAR ÁUDIO",
+            "O servidor tentou repetir o último comando, mas não conseguiu enviá-lo à ESP32."
+        )
+        return jsonify({"ok": False, "erro": "Falha ao reenviar áudio."}), 500
 
 
 # =========================================================
@@ -1682,7 +1804,9 @@ def criar_e_enviar_audio_ia(texto, menu=False):
             audios[audio_id] = {
                 "arquivo": caminho_wav,
                 "recebido": False,
-                "criado": time.time()
+                "criado": time.time(),
+                "menu": bool(menu),
+                "tentativas_recuperacao": 0
             }
             socket_atual = esp_ws
 
@@ -2016,6 +2140,7 @@ def websocket_esp32(ws):
                         if audio_id in audios:
 
                             audios[audio_id]["recebido"] = True
+                            audios[audio_id]["tentativas_recuperacao"] = 0
 
                     print(
                         ">>> WAV CONFIRMADO PELA ESP32:",
