@@ -1925,8 +1925,9 @@ def analisar_foto_nova_com_ia(caminho, nome):
                 quantidade_exercicios_sessao = 0
             adicionar_log_esp32("AVISO", "IA não encontrou exercício legível na foto.")
             criar_e_enviar_audio_ia(
-                "Não consegui identificar nenhum exercício legível nesta imagem.",
-                menu=True
+                "Não consegui detectar nenhum exercício legível nesta imagem. "
+                "Aguarde trinta segundos sem apertar o botão. Depois, tire outra foto.",
+                menu=False
             )
             return
 
@@ -2253,16 +2254,33 @@ def websocket_esp32(ws):
                                     {
                                         "type": "input_text",
                                         "text": (
-                                            f"Observe novamente esta imagem original e resolva SOMENTE o exercício {numero} "
-                                            "que aparece nela. Leia o enunciado, números, fórmulas, limites, expoentes, "
-                                            "símbolos e subdivisões diretamente da imagem. "
-                                            "NÃO use uma transcrição anterior como fonte da resolução. "
-                                            "A resposta será ouvida por uma pessoa que escreverá a resolução no caderno. "
-                                            "Guie a escrita linha por linha, de forma curta, clara e didática. "
-                                            "Use expressões como: escreva, na próxima linha, agora substitua, agora calcule, "
-                                            "agora simplifique e resultado. Ao falar fórmulas, diga exatamente como escrevê-las. "
-                                            "Não use markdown nem tabelas. Não invente dados. "
-                                            "Se o exercício escolhido não estiver legível, diga que não conseguiu lê-lo."
+                                            f"Observe novamente esta imagem original e resolva SOMENTE o exercício {numero} que aparece nela. "
+                                            "Leia o enunciado, números, fórmulas, limites, expoentes, símbolos e subdivisões DIRETAMENTE DA FOTO. "
+                                            "NÃO use uma transcrição anterior como fonte da resolução e NÃO invente dados. "
+                                            "Antes de produzir a resposta, entenda e resolva o exercício internamente e confira a matemática. "
+                                            "Não exponha raciocínio interno, tentativas ou pensamentos em voz alta. "
+                                            "A resposta será convertida em áudio para uma pessoa que está escrevendo a resolução no caderno. "
+                                            "Primeiro diga: 'Prévia.' Em poucas frases, explique o que será feito, qual é a região ou dados importantes, "
+                                            "quais limites aparecem quando houver integrais, qual variável será integrada primeiro e a ordem da resolução. "
+                                            "Depois diga exatamente: 'Agora começa o guia de escrita.' "
+                                            "A partir daí, dite a resolução NA ORDEM EXATA em que deve ser escrita no caderno. "
+                                            "Quando realmente começar uma nova etapa matemática, diga 'Na linha de baixo'. "
+                                            "Quando parte da expressão continuar igual, diga 'Mantenha' e informe o que permanece. "
+                                            "Em fórmulas e contas, fale explicitamente os sinais necessários, parênteses, colchetes, frações, numerador, "
+                                            "denominador, expoentes, raízes, limites inferior e superior e diferenciais como d x, d y ou d z. "
+                                            "Em substituição de limites, deixe claro onde entra o limite superior e onde entra o inferior. "
+                                            "Não diga comandos inúteis como 'pule uma linha' repetidamente; use 'Na linha de baixo' somente quando a escrita realmente mudar de etapa. "
+                                            "Se for uma INTEGRAL, siga obrigatoriamente: prévia da região e dos limites; montagem da integral; resolução da integral interna; "
+                                            "aplicação dos limites; simplificação; integral seguinte; aplicação dos limites; cálculo final. "
+                                            "Para integrais, a montagem dos limites deve ficar muito clara para que o aluno consiga copiá-la apenas ouvindo. "
+                                            "Se NÃO for integral, adapte naturalmente ao tipo de exercício, mas mantenha: prévia curta, guia de escrita e resposta final. "
+                                            "Se for um problema de Física, prefira: dados; fórmula; conversões necessárias; substituição; cálculo; resposta final. "
+                                            "Se houver itens a, b, c, resolva somente as subdivisões que pertencem ao exercício escolhido e deixe claro quando muda de item. "
+                                            "Use linguagem simples, curta e natural em português do Brasil. Não use markdown, tabelas, LaTeX escrito em comandos, "
+                                            "nem fale palavras como 'barra invertida', 'frac', 'begin', 'end' ou nomes de comandos de formatação. "
+                                            "Não apenas explique a matemática: dite o que deve ser escrito. "
+                                            "Termine obrigatoriamente dizendo: 'Resposta final:' seguido do resultado. "
+                                            "Se o exercício escolhido não estiver legível, diga somente que não conseguiu lê-lo com segurança e peça outra foto."
                                         )
                                     },
                                     {
