@@ -1614,6 +1614,9 @@ def analisar_foto_nova_com_ia(caminho, nome):
         print(texto, flush=True)
         adicionar_log_esp32("OK", f"IA analisou {nome}: {texto[:350]}")
 
+        # IA terminou -> cria WAV -> registra -> envia NOVO_AUDIO|ID pelo WebSocket atual.
+        criar_e_enviar_audio_ia(texto)
+
     except Exception as erro:
         print(">>> ERRO NA ANALISE DA IA:", repr(erro), flush=True)
         adicionar_log_esp32("ERRO", f"Falha da IA ao analisar {nome}: {erro}")
