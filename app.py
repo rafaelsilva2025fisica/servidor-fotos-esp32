@@ -2287,11 +2287,27 @@ def websocket_esp32(ws):
                                             "'abra parêntese', 'feche parêntese', 'abra colchete', 'feche colchete', "
                                             "'coloque o sinal de igualdade', 'limite inferior', 'limite superior', 'numerador' e 'denominador'. "
 
-                                            "FRAÇÕES: sempre avise antes que será escrita uma fração. "
-                                            "Diga primeiro 'escreva uma fração'. Depois diga PRIMEIRO 'denominador sendo...' e dite todo o denominador. "
+                                            "ESTRUTURAS MATEMÁTICAS: toda estrutura que possui conteúdo interno deve ser falada com abertura e fechamento explícitos, "
+                                            "para a pessoa saber exatamente onde ela termina. Nunca deixe implícito o fim de uma estrutura. "
+
+                                            "FRAÇÕES: sempre diga 'escreva uma fração'. "
+                                            "Depois diga PRIMEIRO 'denominador sendo...' e dite todo o denominador. "
                                             "Em seguida diga 'e agora numerador sendo...' e dite todo o numerador. "
-                                            "Exemplo: x ao quadrado sobre dois deve ser falado: "
-                                            "'escreva uma fração, denominador sendo dois, e agora numerador sendo x ao quadrado'. "
+                                            "Assim que terminar o numerador, diga obrigatoriamente 'fim da fração'. "
+                                            "Somente depois de dizer 'fim da fração' dite qualquer termo, sinal ou operação que esteja fora dela. "
+                                            "Exemplo: x ao quadrado sobre dois mais x deve ser falado: "
+                                            "'escreva uma fração, denominador sendo dois, e agora numerador sendo x ao quadrado, fim da fração, "
+                                            "sinal de adição, x'. "
+
+                                            "RAÍZES: sempre anuncie o começo e o fim. "
+                                            "Para raiz quadrada diga 'faça uma raiz quadrada. Dentro da raiz...' e dite todo o conteúdo interno. "
+                                            "Ao terminar o conteúdo diga obrigatoriamente 'fim da raiz'. "
+                                            "Somente depois de 'fim da raiz' dite termos ou operações que estejam fora dela. "
+                                            "Para outras raízes, identifique o índice, por exemplo 'faça uma raiz cúbica', dite o conteúdo e finalize com 'fim da raiz'. "
+
+                                            "PARÊNTESES E COLCHETES: continue usando abertura e fechamento explícitos: "
+                                            "'abra parêntese' e 'feche parêntese'; 'abra colchete' e 'feche colchete'. "
+                                            "Se houver estruturas aninhadas, feche cada uma na ordem correta e fale cada fechamento. "
 
                                             "SINAIS: se o menos estiver entre termos realizando subtração, diga 'sinal menos de subtração'. "
                                             "Se um número ou termo tiver valor negativo, diga 'negativo' antes dele. "
