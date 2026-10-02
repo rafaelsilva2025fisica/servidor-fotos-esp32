@@ -296,6 +296,11 @@ audio {
     color: white;
 }
 
+#limparEsp {
+    background: #da3633;
+    color: white;
+}
+
 #mensagemCamera {
     background: #161b22;
     border: 1px solid #30363d;
@@ -608,6 +613,10 @@ audio {
             🖼️ GALERIA
         </button>
 
+        <button id="limparEsp">
+            🧹 LIMPAR ESP
+        </button>
+
         <div id="mensagemCamera">
             Câmera pronta para comando.
         </div>
@@ -753,6 +762,7 @@ const player = document.getElementById("player");
 const mensagem = document.getElementById("mensagem");
 const botaoTirarFoto = document.getElementById("tirarFoto");
 const botaoGaleria = document.getElementById("galeria");
+const botaoLimparEsp = document.getElementById("limparEsp");
 const mensagemCamera = document.getElementById("mensagemCamera");
 const galeriaModal = document.getElementById("galeriaModal");
 const galeriaGrid = document.getElementById("galeriaGrid");
@@ -1052,6 +1062,56 @@ botaoTirarFoto.onclick = async function() {
             "❌ Erro de comunicação com o servidor.";
 
         botaoTirarFoto.disabled = false;
+    }
+};
+
+
+
+// ======================================================
+// LIMPAR ESP32
+// ======================================================
+
+botaoLimparEsp.onclick = async function() {
+    const confirmar = window.confirm(
+        "Limpar fotos, audios e filas/estados do cartao SD da ESP32?"
+    );
+
+    if (!confirmar) {
+        return;
+    }
+
+    botaoLimparEsp.disabled = true;
+    mensagemCamera.textContent = "🧹 Enviando comando de limpeza para a ESP32...";
+
+    try {
+        const resposta = await fetch(
+            "/limpar-esp",
+            {
+                method: "POST"
+            }
+        );
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            mensagemCamera.textContent =
+                "❌ " + (dados.erro || "Não foi possível solicitar a limpeza.");
+            botaoLimparEsp.disabled = false;
+            return;
+        }
+
+        mensagemCamera.textContent =
+            "🧹 Limpeza solicitada. Aguardando a ESP32 limpar e reiniciar.";
+
+        // A ESP reinicia depois da limpeza; libera o botão depois.
+        setTimeout(function() {
+            botaoLimparEsp.disabled = false;
+        }, 7000);
+
+    } catch (erro) {
+        mensagemCamera.textContent =
+            "❌ Erro de comunicação com o servidor.";
+        botaoLimparEsp.disabled = false;
     }
 };
 
@@ -1458,6 +1518,59 @@ def tirar_foto():
         "comando": "TIRAR_FOTO"
     })
 
+
+
+
+# =========================================================
+# LIMPAR ESP32
+# =========================================================
+
+@app.route("/limpar-esp", methods=["POST"])
+def limpar_esp():
+
+    global esp_ws
+
+    if not esp_esta_online():
+        return jsonify({
+            "erro": "ESP32 está desconectada."
+        }), 503
+
+    with lock:
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({
+            "erro": "Canal da ESP32 não está disponível."
+        }), 503
+
+    try:
+        socket_atual.send("LIMPAR_ESP")
+
+        print(
+            "SERVIDOR -> ESP32: LIMPAR_ESP",
+            flush=True
+        )
+
+        adicionar_log_esp32(
+            "INFO",
+            "Comando LIMPAR_ESP enviado para a ESP32."
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO ENVIAR LIMPAR_ESP:",
+            erro,
+            flush=True
+        )
+
+        return jsonify({
+            "erro": "Falha ao enviar comando de limpeza para ESP32."
+        }), 500
+
+    return jsonify({
+        "ok": True,
+        "comando": "LIMPAR_ESP"
+    })
 
 
 # =========================================================
@@ -1909,6 +2022,14 @@ def websocket_esp32(ws):
                         executar_escolha_fisica(ws, quantidade)
                     except Exception as erro:
                         adicionar_log_esp32("ERRO", f"Falha processando escolha física: {type(erro).__name__}: {erro}")
+                continue
+
+            # CONFIRMACAO DA LIMPEZA DA ESP32
+            if mensagem == "LIMPEZA_OK":
+                adicionar_log_esp32(
+                    "OK",
+                    "ESP32 confirmou a limpeza do cartão. Reiniciando limpa."
+                )
                 continue
 
             # PING
