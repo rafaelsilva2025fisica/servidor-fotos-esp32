@@ -404,11 +404,16 @@ audio {
     font-size: 18px;
 }
 
-#atualizarLogs {
+#atualizarLogs,
+#copiarLogs {
     padding: 8px 10px;
     font-size: 12px;
     background: #30363d;
     color: white;
+}
+
+#copiarLogs {
+    background: #238636;
 }
 
 .logs-filtros {
@@ -510,7 +515,10 @@ audio {
 <div class="logs-panel">
     <div class="logs-topo">
         <h2>📋 LOGS ESP32</h2>
-        <button id="atualizarLogs">↻ ATUALIZAR</button>
+        <div style="display:flex; gap:6px;">
+            <button id="copiarLogs">📋 COPIAR</button>
+            <button id="atualizarLogs">↻ ATUALIZAR</button>
+        </div>
     </div>
 
     <div class="logs-filtros">
@@ -617,6 +625,7 @@ audio {
 
 const logsLista = document.getElementById("logsLista");
 const atualizarLogsBtn = document.getElementById("atualizarLogs");
+const copiarLogsBtn = document.getElementById("copiarLogs");
 const limparLogsBtn = document.getElementById("limparLogs");
 const filtrosLogs = document.querySelectorAll(".filtro-log");
 
@@ -707,6 +716,39 @@ filtrosLogs.forEach(function(botao) {
 });
 
 atualizarLogsBtn.onclick = carregarLogs;
+
+copiarLogsBtn.onclick = async function() {
+    const itens = ultimoSnapshotLogs.slice(0, 100).reverse();
+
+    if (itens.length === 0) {
+        const original = copiarLogsBtn.textContent;
+        copiarLogsBtn.textContent = "SEM LOGS";
+        setTimeout(() => copiarLogsBtn.textContent = original, 1200);
+        return;
+    }
+
+    const texto = itens.map(function(item) {
+        return "[" + item.hora + "] [" + item.nivel + "] " + item.mensagem;
+    }).join("\\n");
+
+    try {
+        await navigator.clipboard.writeText(texto);
+    } catch (erro) {
+        const area = document.createElement("textarea");
+        area.value = texto;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.focus();
+        area.select();
+        document.execCommand("copy");
+        document.body.removeChild(area);
+    }
+
+    const original = copiarLogsBtn.textContent;
+    copiarLogsBtn.textContent = "✅ COPIADO";
+    setTimeout(() => copiarLogsBtn.textContent = original, 1500);
+};
 
 limparLogsBtn.onclick = async function() {
     try {
