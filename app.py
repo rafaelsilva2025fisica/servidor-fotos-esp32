@@ -3,14 +3,19 @@ from flask_sock import Sock
 import threading
 import time
 import os
-import base64
 import uuid
 import subprocess
 import imageio_ffmpeg
 from datetime import datetime
-from openai import OpenAI
+from teste_openai_web import teste_openai_bp
+from teste_audio_web import teste_audio_bp
+from teste_controle_web import teste_controle_bp, interpretar_cliques, zerar_sessao, iniciar_ultima_foto, ESTADO as ESTADO_CONTROLE, LOCK as LOCK_CONTROLE, _menu_apos_exercicio, _gerar_tts
 
 app = Flask(__name__)
+
+app.register_blueprint(teste_openai_bp)
+app.register_blueprint(teste_audio_bp)
+app.register_blueprint(teste_controle_bp)
 
 # =========================================================
 # GALERIA DE FOTOS
@@ -28,23 +33,45 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
-
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-luna").strip()
-OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts").strip()
-OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "alloy").strip()
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-
-
 lock = threading.Lock()
 
 ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
 
+# Escolha remota da bancada; consumida uma única vez quando chegar CLIQUES|0.
+clique_bancada_pendente = None
+audio_pendente_esp = None
+
 
 logs_esp32 = []
 MAX_LOGS_ESP32 = 300
+
+# =========================================================
+# LOG SEPARADO DO CEREBRO / IA
+# =========================================================
+logs_ia = []
+MAX_LOGS_IA = 300
+
+def adicionar_log_ia(tipo, mensagem):
+    item = {
+        "id": uuid.uuid4().hex[:10],
+        "hora": datetime.now().strftime("%d/%m %H:%M:%S"),
+        "tipo": str(tipo or "INFO").upper(),
+        "mensagem": str(mensagem)
+    }
+
+    with lock:
+        logs_ia.append(item)
+        if len(logs_ia) > MAX_LOGS_IA:
+            del logs_ia[:-MAX_LOGS_IA]
+
+    print(
+        f"LOG IA [{item['tipo']}] {item['mensagem']}",
+        flush=True
+    )
+    return item
+
 
 def adicionar_log_esp32(nivel, mensagem):
     nivel = (nivel or "INFO").upper().strip()
@@ -266,6 +293,11 @@ audio {
 
 #galeria {
     background: #8957e5;
+    color: white;
+}
+
+#limparEsp {
+    background: #da3633;
     color: white;
 }
 
@@ -581,6 +613,10 @@ audio {
             🖼️ GALERIA
         </button>
 
+        <button id="limparEsp">
+            🧹 LIMPAR ESP
+        </button>
+
         <div id="mensagemCamera">
             Câmera pronta para comando.
         </div>
@@ -726,6 +762,7 @@ const player = document.getElementById("player");
 const mensagem = document.getElementById("mensagem");
 const botaoTirarFoto = document.getElementById("tirarFoto");
 const botaoGaleria = document.getElementById("galeria");
+const botaoLimparEsp = document.getElementById("limparEsp");
 const mensagemCamera = document.getElementById("mensagemCamera");
 const galeriaModal = document.getElementById("galeriaModal");
 const galeriaGrid = document.getElementById("galeriaGrid");
@@ -1029,6 +1066,56 @@ botaoTirarFoto.onclick = async function() {
 };
 
 
+
+// ======================================================
+// LIMPAR ESP32
+// ======================================================
+
+botaoLimparEsp.onclick = async function() {
+    const confirmar = window.confirm(
+        "Limpar fotos, audios e filas/estados do cartao SD da ESP32?"
+    );
+
+    if (!confirmar) {
+        return;
+    }
+
+    botaoLimparEsp.disabled = true;
+    mensagemCamera.textContent = "🧹 Enviando comando de limpeza para a ESP32...";
+
+    try {
+        const resposta = await fetch(
+            "/limpar-esp",
+            {
+                method: "POST"
+            }
+        );
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            mensagemCamera.textContent =
+                "❌ " + (dados.erro || "Não foi possível solicitar a limpeza.");
+            botaoLimparEsp.disabled = false;
+            return;
+        }
+
+        mensagemCamera.textContent =
+            "🧹 Limpeza solicitada. Aguardando a ESP32 limpar e reiniciar.";
+
+        // A ESP reinicia depois da limpeza; libera o botão depois.
+        setTimeout(function() {
+            botaoLimparEsp.disabled = false;
+        }, 7000);
+
+    } catch (erro) {
+        mensagemCamera.textContent =
+            "❌ Erro de comunicação com o servidor.";
+        botaoLimparEsp.disabled = false;
+    }
+};
+
+
 async function carregarGaleria() {
     galeriaGrid.innerHTML = '<div class="galeria-vazia">Carregando...</div>';
 
@@ -1283,37 +1370,8 @@ def enviar_audio():
             "criado": time.time()
         }
 
-        socket_atual = esp_ws
-
-    if socket_atual is None:
-
-        return jsonify({
-            "erro": "Canal da ESP32 não está disponível."
-        }), 503
-
-    try:
-
-        comando = "NOVO_AUDIO|" + audio_id
-
-        socket_atual.send(comando)
-
-        print(
-            "SERVIDOR -> ESP32:",
-            comando,
-            flush=True
-        )
-
-    except Exception as erro:
-
-        print(
-            "ERRO AO AVISAR ESP32:",
-            erro,
-            flush=True
-        )
-
-        return jsonify({
-            "erro": "Falha ao enviar comando para ESP32."
-        }), 500
+    # Mesmo despachante usado pelos áudios criados pela IA.
+    despachar_audio_para_esp(audio_id)
 
     return jsonify({
         "ok": True,
@@ -1463,163 +1521,112 @@ def tirar_foto():
 
 
 
-
 # =========================================================
-# IA -> VOZ -> WAV -> ESP32
-# Reutiliza exatamente o protocolo NOVO_AUDIO|ID já existente.
+# LIMPAR ESP32
 # =========================================================
 
-def criar_e_enviar_audio_ia(texto):
+@app.route("/limpar-esp", methods=["POST"])
+def limpar_esp():
+
     global esp_ws
 
-    texto = (texto or "").strip()
-    if not texto:
-        adicionar_log_esp32("ERRO", "IA retornou texto vazio; áudio não criado.")
-        return False
-
-    if openai_client is None:
-        adicionar_log_esp32("ERRO", "OPENAI_API_KEY ausente; áudio da IA não criado.")
-        return False
-
     if not esp_esta_online():
-        adicionar_log_esp32("ERRO", "ESP32 offline; áudio da IA não enviado.")
-        return False
+        return jsonify({
+            "erro": "ESP32 está desconectada."
+        }), 503
 
-    audio_id = uuid.uuid4().hex[:12]
-    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + "_ia.mp3")
-    caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
+    with lock:
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({
+            "erro": "Canal da ESP32 não está disponível."
+        }), 503
 
     try:
-        adicionar_log_esp32("INFO", "Criando voz da resposta da IA...")
+        socket_atual.send("LIMPAR_ESP")
 
-        resposta_audio = openai_client.audio.speech.create(
-            model=OPENAI_TTS_MODEL,
-            voice=OPENAI_TTS_VOICE,
-            input=texto,
-            response_format="mp3"
+        print(
+            "SERVIDOR -> ESP32: LIMPAR_ESP",
+            flush=True
         )
-
-        resposta_audio.stream_to_file(caminho_mp3)
-
-        print(">>> IA TTS: MP3 CRIADO:", caminho_mp3, "<<<", flush=True)
-
-        comando_ffmpeg = [
-            FFMPEG,
-            "-y",
-            "-i", caminho_mp3,
-            "-vn",
-            "-acodec", "pcm_s16le",
-            "-ar", "44100",
-            "-ac", "2",
-            caminho_wav
-        ]
-
-        resultado = subprocess.run(
-            comando_ffmpeg,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=60
-        )
-
-        try:
-            os.remove(caminho_mp3)
-        except Exception:
-            pass
-
-        if resultado.returncode != 0 or not os.path.exists(caminho_wav):
-            erro_ffmpeg = resultado.stderr.decode("utf-8", errors="ignore")
-            print(">>> IA TTS: ERRO FFMPEG <<<", flush=True)
-            print(erro_ffmpeg, flush=True)
-            adicionar_log_esp32("ERRO", "Falha convertendo voz da IA para WAV.")
-            return False
-
-        tamanho_wav = os.path.getsize(caminho_wav)
-
-        with lock:
-            audios[audio_id] = {
-                "arquivo": caminho_wav,
-                "recebido": False,
-                "criado": time.time()
-            }
-            socket_atual = esp_ws
-
-        if socket_atual is None:
-            adicionar_log_esp32("ERRO", "WebSocket da ESP32 indisponível para áudio da IA.")
-            return False
-
-        comando = "NOVO_AUDIO|" + audio_id
-        socket_atual.send(comando)
-
-        print("================================", flush=True)
-        print(">>> AUDIO DA IA PRONTO <<<", flush=True)
-        print("ID:", audio_id, flush=True)
-        print("WAV:", caminho_wav, flush=True)
-        print("TAMANHO:", tamanho_wav, "bytes", flush=True)
-        print("FORMATO: PCM 16-bit / 44100 Hz / stereo", flush=True)
-        print("SERVIDOR -> ESP32:", comando, flush=True)
-        print("================================", flush=True)
 
         adicionar_log_esp32(
-            "OK",
-            f"Áudio da IA criado e enviado à ESP32: {audio_id} ({tamanho_wav} bytes)."
+            "INFO",
+            "Comando LIMPAR_ESP enviado para a ESP32."
         )
-        return True
 
     except Exception as erro:
-        print(">>> ERRO CRIANDO/ENVIANDO AUDIO DA IA:", repr(erro), flush=True)
-        adicionar_log_esp32("ERRO", f"Falha no áudio da IA: {erro}")
-        return False
+        print(
+            "ERRO AO ENVIAR LIMPAR_ESP:",
+            erro,
+            flush=True
+        )
+
+        return jsonify({
+            "erro": "Falha ao enviar comando de limpeza para ESP32."
+        }), 500
+
+    return jsonify({
+        "ok": True,
+        "comando": "LIMPAR_ESP"
+    })
 
 
 # =========================================================
-# IA - ANALISA SOMENTE A FOTO NOVA RECEBIDA DA ESP32
+# FLUXO AUTOMÁTICO: FOTO RECEBIDA -> IA -> ÁUDIO -> ESP32
 # =========================================================
-
-def analisar_foto_nova_com_ia(caminho, nome):
-    if openai_client is None:
-        print(">>> IA NAO CONFIGURADA: OPENAI_API_KEY AUSENTE <<<", flush=True)
-        adicionar_log_esp32("AVISO", "Foto recebida, mas OPENAI_API_KEY não está configurada.")
-        return
-
+def processar_foto_recebida_automaticamente(caminho_foto, nome_foto):
+    """
+    Executa em thread depois que /upload-foto já respondeu à ESP32.
+    Assim o upload não fica esperando IA/TTS e não causa timeout no ESP.
+    """
     try:
-        adicionar_log_esp32("INFO", f"IA iniciando análise da foto nova: {nome}")
-        print(f">>> IA: ANALISANDO SOMENTE A FOTO NOVA: {nome} <<<", flush=True)
+        adicionar_log_ia("FOTO", f"Nova foto recebida: {nome_foto}. Iniciando análise automaticamente.")
+        adicionar_log_esp32("INFO", f"Foto {nome_foto} entregue à IA automaticamente.")
 
-        with open(caminho, "rb") as arquivo:
-            imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
+        # Nova foto = nova sessão. Evita reaproveitar menu da foto anterior.
+        zerar_sessao()
 
-        resposta = openai_client.responses.create(
-            model=OPENAI_MODEL,
-            input=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": (
-                            "Analise esta foto recebida agora da ESP32. "
-                            "Por enquanto, apenas descreva de forma curta o que está legível "
-                            "e diga se existe um exercício ou questão legível na imagem."
-                        )
-                    },
-                    {
-                        "type": "input_image",
-                        "image_url": "data:image/jpeg;base64," + imagem_b64
-                    }
-                ]
-            }]
-        )
+        inicio = iniciar_ultima_foto(caminho_foto)
+        if not inicio.get("ok"):
+            erro = str(inicio.get("erro", "Falha desconhecida na análise."))
+            adicionar_log_ia("ERRO", f"Falha ao analisar {nome_foto}: {erro}")
+            adicionar_log_esp32("ERRO", f"IA não conseguiu analisar a foto: {erro}")
+            return
 
-        texto = (resposta.output_text or "").strip()
-        print(">>> IA: RESPOSTA <<<", flush=True)
-        print(texto, flush=True)
-        adicionar_log_esp32("OK", f"IA analisou {nome}: {texto[:350]}")
+        qtd = inicio.get('quantidade', 0)
 
-        # IA terminou -> cria WAV -> registra -> envia NOVO_AUDIO|ID pelo WebSocket atual.
-        criar_e_enviar_audio_ia(texto)
+        if qtd:
+            # Quando ha exercicios, mantem exatamente o menu detalhado criado pela IA.
+            texto_audio_inicial = inicio.get("menu", "")
+            adicionar_log_ia("FOTO", f"Foto analisada. Exercícios identificados: {qtd}")
+        else:
+            # Quando nao ha exercicios, NAO descreve ambiente, objetos, luz etc.
+            # O audio deve ser curto e orientar a esperar o leitor de botoes terminar.
+            texto_audio_inicial = (
+                "Nenhum exercício identificado. "
+                "Tire outra foto depois de 15 segundos do leitor de botões."
+            )
+            adicionar_log_ia("FOTO", "Nenhum exercício legível identificado.")
 
-    except Exception as erro:
-        print(">>> ERRO NA ANALISE DA IA:", repr(erro), flush=True)
-        adicionar_log_esp32("ERRO", f"Falha da IA ao analisar {nome}: {erro}")
+        adicionar_log_ia("LEITURA", texto_audio_inicial)
+
+        adicionar_log_ia("ÁUDIO", "Criando o áudio da leitura inicial...")
+        audio_id = preparar_audio_tts_para_esp(texto_audio_inicial)
+        adicionar_log_ia("ÁUDIO", f"WAV da leitura inicial criado: {audio_id}")
+
+        # O primeiro audio e a visao geral/menu.
+        if despachar_audio_para_esp(audio_id, menu=True):
+            adicionar_log_ia("FLUXO", "Foto -> IA -> áudio de menu -> ESP32 concluído.")
+        else:
+            adicionar_log_ia("PENDENTE", f"Áudio {audio_id} pronto; aguardando WebSocket da ESP32.")
+
+    except Exception as e:
+        erro = f"{type(e).__name__}: {e}"
+        adicionar_log_ia("ERRO", f"Fluxo automático da foto falhou: {erro}")
+        adicionar_log_esp32("ERRO", f"Fluxo automático da foto falhou: {erro}")
+        print("ERRO FLUXO AUTOMATICO FOTO:", erro, flush=True)
 
 
 # =========================================================
@@ -1672,10 +1679,10 @@ def upload_foto():
     )
     adicionar_log_esp32("OK", f"Foto recebida pelo servidor: {nome} ({tamanho} bytes).")
 
-
-    # A IA é disparada SOMENTE por esta foto nova já salva e validada.
+    # Dispara a IA imediatamente, mas fora da requisição HTTP.
+    # A ESP recebe HTTP 201 rápido, reabre o WebSocket e fica pronta para NOVO_AUDIO.
     threading.Thread(
-        target=analisar_foto_nova_com_ia,
+        target=processar_foto_recebida_automaticamente,
         args=(caminho, nome),
         daemon=True
     ).start()
@@ -1728,13 +1735,232 @@ def arquivo_galeria(nome):
     return send_from_directory(PASTA_GALERIA, nome)
 
 # =========================================================
+# DESPACHO CENTRAL DE AUDIO PARA ESP32
+# Usa sempre o WebSocket ATUAL, igual ao envio pelo site.
+# Se a ESP estiver desconectada, mantém o áudio pendente.
+# =========================================================
+def despachar_audio_para_esp(audio_id, menu=False):
+    """
+    Envia NOVO_AUDIO pelo WebSocket atual.
+    Só mantém pendente quando NÃO conseguiu enviar.
+    Se ws.send() funcionou, limpa a pendência imediatamente para impedir reenvio infinito.
+    """
+    global esp_ws, audio_pendente_esp
+
+    with lock:
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        with lock:
+            audio_pendente_esp = audio_id
+        adicionar_log_ia("PENDENTE", f"ESP32 sem WebSocket ativo. Áudio {audio_id} aguardando reconexão.")
+        return False
+
+    try:
+        prefixo = "NOVO_AUDIO_MENU" if menu else "NOVO_AUDIO"
+        comando = f"{prefixo}|{audio_id}"
+        socket_atual.send(comando)
+
+        # O comando foi entregue ao socket atual: NÃO deve ser reenviado em cada reconexão.
+        with lock:
+            if audio_pendente_esp == audio_id:
+                audio_pendente_esp = None
+
+        adicionar_log_ia("ENVIO", f"Enviado pelo WebSocket atual da ESP32: {comando}")
+        adicionar_log_esp32("OK", f"Comando {comando} enviado para a ESP32.")
+        return True
+
+    except Exception as erro:
+        # Só fica pendente se o send realmente falhou.
+        with lock:
+            audio_pendente_esp = audio_id
+            if esp_ws is socket_atual:
+                esp_ws = None
+        adicionar_log_ia("PENDENTE", f"Falha no envio. Áudio {audio_id} aguardará reconexão: {type(erro).__name__}: {erro}")
+        adicionar_log_esp32("AVISO", f"Áudio {audio_id} pendente para a próxima conexão da ESP32.")
+        return False
+
+
+def enviar_audio_pendente_se_houver():
+    global audio_pendente_esp
+    with lock:
+        audio_id = audio_pendente_esp
+    if not audio_id:
+        return False
+    adicionar_log_ia("REENVIO", f"ESP32 conectada. Tentando entregar áudio pendente: {audio_id}")
+    return despachar_audio_para_esp(audio_id)
+
+# =========================================================
+# CEREBRO DE CLIQUES -> AUDIO PARA ESP32
+# =========================================================
+def preparar_audio_tts_para_esp(texto):
+    """Gera TTS, converte para o WAV esperado pela ESP32 e registra em audios."""
+    audio_id = "ia_" + uuid.uuid4().hex[:12]
+    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + ".mp3")
+    caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
+
+    dados_mp3 = _gerar_tts(texto)
+    with open(caminho_mp3, "wb") as f:
+        f.write(dados_mp3)
+
+    comando_ffmpeg = [
+        FFMPEG, "-y", "-i", caminho_mp3, "-vn",
+        "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", caminho_wav
+    ]
+    resultado = subprocess.run(comando_ffmpeg, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    try:
+        os.remove(caminho_mp3)
+    except Exception:
+        pass
+    if resultado.returncode != 0 or not os.path.exists(caminho_wav):
+        raise RuntimeError("Falha ao converter TTS para WAV.")
+
+    with lock:
+        audios[audio_id] = {"arquivo": caminho_wav, "recebido": False, "criado": time.time()}
+    return audio_id
+
+
+def registrar_clique_bancada(n):
+    global clique_bancada_pendente
+    n = int(n)
+    if n < 0:
+        raise ValueError("Clique inválido")
+    with lock:
+        clique_bancada_pendente = n
+    adicionar_log_ia("BANCADA", f"Escolha remota armada: {n} clique(s). Aguardando CLIQUES|0 da ESP.")
+    return n
+
+def consumir_clique_bancada():
+    global clique_bancada_pendente
+    with lock:
+        n = clique_bancada_pendente
+        clique_bancada_pendente = None
+    return n
+
+def executar_escolha_fisica(ws, quantidade):
+    # Se a ESP terminou os 15 s com 0, a bancada pode substituir esse 0.
+    quantidade = int(quantidade)
+    if quantidade == 0:
+        clique_remoto = consumir_clique_bancada()
+        if clique_remoto is not None:
+            adicionar_log_ia("BANCADA", f"ESP enviou 0; usando escolha da bancada: {clique_remoto} clique(s).")
+            quantidade = int(clique_remoto)
+        else:
+            adicionar_log_ia("BANCADA", "ESP enviou 0; nenhuma escolha na página. Mantendo 0.")
+
+    """Interpreta CLIQUES|N usando exatamente o mesmo menu da bancada."""
+
+    # REGRA DEFINITIVA DO ZERO:
+    # depois do áudio a ESP reinicia e envia CLIQUES|0.
+    # Se a bancada NÃO substituiu esse zero por uma escolha real, 0 apenas
+    # encerra a sessão atual e deixa a ESP livre no PING/PONG, aguardando
+    # o botão físico de uma nova foto. Não repete menu, não chama IA e
+    # não envia áudio.
+    if quantidade == 0:
+        adicionar_log_ia("AÇÃO", "0 cliques recebido; nenhuma ação executada.")
+        adicionar_log_esp32("OK", "0 cliques: nenhuma ação; mantendo PING/PONG.")
+        return
+
+    resultado = interpretar_cliques(quantidade)
+    if not resultado.get("ok"):
+        adicionar_log_esp32("AVISO", "Cliques sem opção válida: " + str(resultado.get("erro")))
+        adicionar_log_ia("AVISO", "Clique recebido, mas não corresponde ao menu atual: " + str(resultado.get("erro")))
+        return
+
+    if resultado.get("acao") == "nova_foto":
+        zerar_sessao()
+        adicionar_log_esp32("INFO", "Opção física escolhida: nova foto. Sessão zerada.")
+        adicionar_log_ia("AÇÃO", "Menu interpretado: tirar nova foto e zerar a sessão.")
+        ws.send("TIRAR_FOTO")
+        return
+
+    if resultado.get("acao") == "repetir_menu":
+        adicionar_log_esp32("INFO", "0 cliques: repetindo o último menu falado.")
+        adicionar_log_ia("AÇÃO", "0 cliques com sessão ativa = repetir o último menu falado.")
+        adicionar_log_ia("MENU", resultado.get("texto", ""))
+        adicionar_log_ia("ÁUDIO", "Criando áudio para repetir o menu...")
+        audio_id = preparar_audio_tts_para_esp(resultado["texto"])
+        despachar_audio_para_esp(audio_id)
+        return
+
+    num = resultado["exercicio"]
+    with LOCK_CONTROLE:
+        texto_base = ESTADO_CONTROLE["roteiros"][num]
+        menu_final, _ = _menu_apos_exercicio(num, ESTADO_CONTROLE["roteiros"])
+    texto = texto_base + "\n\n" + menu_final
+
+    adicionar_log_esp32("INFO", f"Cliques escolheram exercício {num}. Gerando áudio...")
+    adicionar_log_ia("AÇÃO", f"Menu interpretado: abrir resolução do exercício {num}.")
+    adicionar_log_ia("QUESTÃO/RESOLUÇÃO", texto)
+    adicionar_log_ia("ÁUDIO", f"Criando áudio da resolução do exercício {num}...")
+    audio_id = preparar_audio_tts_para_esp(texto)
+    despachar_audio_para_esp(audio_id)
+
+
+
+# =========================================================
+# PAINEL SEPARADO DO CEREBRO / IA
+# =========================================================
+
+@app.route("/api/log-ia")
+def api_log_ia():
+    with lock:
+        itens = list(logs_ia)
+    return jsonify({"ok": True, "logs": itens})
+
+
+@app.route("/log-ia")
+def pagina_log_ia():
+    return app.response_class(r"""<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Log do Cérebro IA</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}
+.wrap{max-width:1000px;margin:auto}
+h1{margin-bottom:6px}.sub{color:#8b949e;margin-bottom:20px}
+#log{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;min-height:400px}
+.item{border-bottom:1px solid #30363d;padding:12px 4px;white-space:pre-wrap;word-break:break-word}
+.item:last-child{border-bottom:0}.hora{color:#8b949e}.tipo{font-weight:bold;margin:0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Cérebro IA</h1>
+<div class="sub">Somente decisões da IA, fila de cliques, leitura da foto, menu e áudio escolhido.</div>
+<div id="log">Aguardando eventos...</div>
+</div>
+<script>
+async function atualizar(){
+  try{
+    const r=await fetch('/api/log-ia?t='+Date.now(),{cache:'no-store'});
+    const d=await r.json();
+    const box=document.getElementById('log');
+    if(!d.logs || !d.logs.length){box.textContent='Aguardando eventos...';return;}
+    box.innerHTML=d.logs.map(x =>
+      '<div class="item"><span class="hora">'+x.hora+'</span>'+
+      '<span class="tipo">['+x.tipo+']</span>'+
+      '<span>'+String(x.mensagem).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</span></div>'
+    ).join('');
+    window.scrollTo(0,document.body.scrollHeight);
+  }catch(e){}
+}
+atualizar(); setInterval(atualizar,1500);
+</script>
+</body>
+</html>""", mimetype="text/html; charset=utf-8")
+
+
+# =========================================================
 # WEBSOCKET
 # =========================================================
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
 
-    global esp_ws
+    global esp_ws, audio_pendente_esp
 
     print(
         "================================",
@@ -1761,6 +1987,9 @@ def websocket_esp32(ws):
 
         ws.send("SERVIDOR_OK")
 
+        # Se um áudio ficou pronto enquanto o socket anterior caiu, entrega agora.
+        enviar_audio_pendente_se_houver()
+
         while True:
 
             mensagem = ws.receive()
@@ -1786,6 +2015,33 @@ def websocket_esp32(ws):
                         partes_log[2]
                     )
 
+                continue
+
+            # CLIQUES DO BOTAO FISICO
+            if mensagem.startswith("CLIQUES|"):
+                try:
+                    quantidade = int(mensagem.split("|", 1)[1])
+                except Exception:
+                    quantidade = -1
+
+                # Primeiro confirma o recebimento. A ESP32 só então apaga o TXT pendente.
+                ws.send("CLIQUES_OK")
+                adicionar_log_esp32("OK", f"CLIQUES|{quantidade} recebido e confirmado.")
+                adicionar_log_ia("FILA", f"Fila de cliques recebida da ESP32: {quantidade}")
+
+                if quantidade >= 0:
+                    try:
+                        executar_escolha_fisica(ws, quantidade)
+                    except Exception as erro:
+                        adicionar_log_esp32("ERRO", f"Falha processando escolha física: {type(erro).__name__}: {erro}")
+                continue
+
+            # CONFIRMACAO DA LIMPEZA DA ESP32
+            if mensagem == "LIMPEZA_OK":
+                adicionar_log_esp32(
+                    "OK",
+                    "ESP32 confirmou a limpeza do cartão. Reiniciando limpa."
+                )
                 continue
 
             # PING
@@ -1815,6 +2071,9 @@ def websocket_esp32(ws):
                         if audio_id in audios:
 
                             audios[audio_id]["recebido"] = True
+
+                        if audio_pendente_esp == audio_id:
+                            audio_pendente_esp = None
 
                     print(
                         ">>> WAV CONFIRMADO PELA ESP32:",
@@ -1848,6 +2107,14 @@ def websocket_esp32(ws):
 # =========================================================
 # EXECUÇÃO LOCAL
 # =========================================================
+
+
+
+# =========================================================
+# CALLBACK PARA A PÁGINA DE TESTE DE BANCADA
+# =========================================================
+app.extensions['executar_escolha_fisica'] = executar_escolha_fisica
+app.extensions['registrar_clique_bancada'] = registrar_clique_bancada
 
 if __name__ == "__main__":
 
