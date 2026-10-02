@@ -678,6 +678,10 @@ function iconeNivel(nivel) {
 }
 
 function renderizarLogs() {
+    // Guarda a posição atual da barra antes de reconstruir a lista.
+    // Assim a atualização automática não "puxa" o usuário de volta para cima.
+    const posicaoScrollAntes = logsLista.scrollTop;
+
     const filtrados = ultimoSnapshotLogs.filter(function(item) {
         return filtroLogAtual === "TODOS" || item.nivel === filtroLogAtual;
     });
@@ -716,7 +720,12 @@ function renderizarLogs() {
         logsLista.appendChild(caixa);
     });
 
-    logsLista.scrollTop = 0;
+    // Mantém exatamente a posição em que o usuário estava lendo.
+    // Se estava no topo, continua no topo. Se desceu, continua onde parou.
+    logsLista.scrollTop = Math.min(
+        posicaoScrollAntes,
+        Math.max(0, logsLista.scrollHeight - logsLista.clientHeight)
+    );
 }
 
 async function carregarLogs() {
