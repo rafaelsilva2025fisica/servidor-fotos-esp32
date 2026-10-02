@@ -31,6 +31,8 @@ FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-luna").strip()
+OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts").strip()
+OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "alloy").strip()
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
@@ -1459,6 +1461,114 @@ def tirar_foto():
     })
 
 
+
+
+
+# =========================================================
+# IA -> VOZ -> WAV -> ESP32
+# Reutiliza exatamente o protocolo NOVO_AUDIO|ID já existente.
+# =========================================================
+
+def criar_e_enviar_audio_ia(texto):
+    global esp_ws
+
+    texto = (texto or "").strip()
+    if not texto:
+        adicionar_log_esp32("ERRO", "IA retornou texto vazio; áudio não criado.")
+        return False
+
+    if openai_client is None:
+        adicionar_log_esp32("ERRO", "OPENAI_API_KEY ausente; áudio da IA não criado.")
+        return False
+
+    if not esp_esta_online():
+        adicionar_log_esp32("ERRO", "ESP32 offline; áudio da IA não enviado.")
+        return False
+
+    audio_id = uuid.uuid4().hex[:12]
+    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + "_ia.mp3")
+    caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
+
+    try:
+        adicionar_log_esp32("INFO", "Criando voz da resposta da IA...")
+
+        resposta_audio = openai_client.audio.speech.create(
+            model=OPENAI_TTS_MODEL,
+            voice=OPENAI_TTS_VOICE,
+            input=texto,
+            response_format="mp3"
+        )
+
+        resposta_audio.stream_to_file(caminho_mp3)
+
+        print(">>> IA TTS: MP3 CRIADO:", caminho_mp3, "<<<", flush=True)
+
+        comando_ffmpeg = [
+            FFMPEG,
+            "-y",
+            "-i", caminho_mp3,
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ar", "44100",
+            "-ac", "2",
+            caminho_wav
+        ]
+
+        resultado = subprocess.run(
+            comando_ffmpeg,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60
+        )
+
+        try:
+            os.remove(caminho_mp3)
+        except Exception:
+            pass
+
+        if resultado.returncode != 0 or not os.path.exists(caminho_wav):
+            erro_ffmpeg = resultado.stderr.decode("utf-8", errors="ignore")
+            print(">>> IA TTS: ERRO FFMPEG <<<", flush=True)
+            print(erro_ffmpeg, flush=True)
+            adicionar_log_esp32("ERRO", "Falha convertendo voz da IA para WAV.")
+            return False
+
+        tamanho_wav = os.path.getsize(caminho_wav)
+
+        with lock:
+            audios[audio_id] = {
+                "arquivo": caminho_wav,
+                "recebido": False,
+                "criado": time.time()
+            }
+            socket_atual = esp_ws
+
+        if socket_atual is None:
+            adicionar_log_esp32("ERRO", "WebSocket da ESP32 indisponível para áudio da IA.")
+            return False
+
+        comando = "NOVO_AUDIO|" + audio_id
+        socket_atual.send(comando)
+
+        print("================================", flush=True)
+        print(">>> AUDIO DA IA PRONTO <<<", flush=True)
+        print("ID:", audio_id, flush=True)
+        print("WAV:", caminho_wav, flush=True)
+        print("TAMANHO:", tamanho_wav, "bytes", flush=True)
+        print("FORMATO: PCM 16-bit / 44100 Hz / stereo", flush=True)
+        print("SERVIDOR -> ESP32:", comando, flush=True)
+        print("================================", flush=True)
+
+        adicionar_log_esp32(
+            "OK",
+            f"Áudio da IA criado e enviado à ESP32: {audio_id} ({tamanho_wav} bytes)."
+        )
+        return True
+
+    except Exception as erro:
+        print(">>> ERRO CRIANDO/ENVIANDO AUDIO DA IA:", repr(erro), flush=True)
+        adicionar_log_esp32("ERRO", f"Falha no áudio da IA: {erro}")
+        return False
 
 
 # =========================================================
