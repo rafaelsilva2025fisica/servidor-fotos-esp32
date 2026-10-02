@@ -1,5 +1,0 @@
-Flask==3.1.2
-gunicorn==23.0.0
-flask-sock
-imageio-ffmpeg
-openai
