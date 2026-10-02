@@ -46,6 +46,7 @@ audios = {}
 # SESSAO ATUAL DE EXERCICIOS
 # =========================================================
 exercicios_atuais = []
+aguardando_resposta_menu = False
 
 
 logs_esp32 = []
@@ -1498,7 +1499,7 @@ def texto_menu_exercicios(quantidade):
 
 
 def criar_e_enviar_audio_ia(texto, menu=False):
-    global esp_ws
+    global esp_ws, aguardando_resposta_menu
 
     texto = (texto or "").strip()
     if not texto:
@@ -1592,6 +1593,13 @@ def criar_e_enviar_audio_ia(texto, menu=False):
             "OK",
             f"Áudio da IA criado e enviado à ESP32: {audio_id} ({tamanho_wav} bytes)."
         )
+
+        # A ESP sempre contará 15 s. O servidor só aceita a resposta
+        # quando este áudio realmente contém um menu.
+        if menu:
+            with lock:
+                aguardando_resposta_menu = True
+
         return True
 
     except Exception as erro:
@@ -1793,6 +1801,7 @@ def arquivo_galeria(nome):
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
+    global aguardando_resposta_menu
 
     global esp_ws
 
@@ -1891,18 +1900,46 @@ def websocket_esp32(ws):
                 except ValueError:
                     quantidade = 0
 
+                with lock:
+                    servidor_esperava_menu = aguardando_resposta_menu
+
+                # A ESP envia CLIQUES depois de TODO áudio.
+                # Fora de um menu, isso não executa absolutamente nada.
+                if not servidor_esperava_menu:
+                    print(
+                        f">>> CLIQUES|{quantidade} IGNORADO: SERVIDOR NAO AGUARDAVA MENU <<<",
+                        flush=True
+                    )
+                    adicionar_log_esp32(
+                        "INFO",
+                        f"CLIQUES|{quantidade} recebido fora de menu; ignorado."
+                    )
+                    continue
+
+                # Uma resposta foi recebida para o menu atual.
+                with lock:
+                    aguardando_resposta_menu = False
+
                 if quantidade <= 0:
                     with lock:
                         exercicios_atuais.clear()
                     print(">>> SESSAO ENCERRADA: CLIQUES|0 <<<", flush=True)
-                    adicionar_log_esp32("OK", "Sessão encerrada; exercícios da foto apagados.")
+                    adicionar_log_esp32(
+                        "OK",
+                        "15 s sem clique: sessão encerrada e exercícios apagados."
+                    )
                     continue
 
                 with lock:
                     lista_exercicios = list(exercicios_atuais)
 
                 if quantidade > len(lista_exercicios):
-                    adicionar_log_esp32("AVISO", f"Escolha {quantidade} inválida.")
+                    with lock:
+                        aguardando_resposta_menu = True
+                    adicionar_log_esp32(
+                        "AVISO",
+                        f"Escolha {quantidade} inválida; servidor continua aguardando menu."
+                    )
                     continue
 
                 exercicio = lista_exercicios[quantidade - 1]
