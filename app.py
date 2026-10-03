@@ -2138,6 +2138,15 @@ def websocket_esp32(ws):
                 flush=True
             )
 
+            # BOTAO FISICO DE FOTO
+            if mensagem == "BOTAO_FOTO_ACIONADO":
+                adicionar_log_esp32(
+                    "INFO",
+                    "Botao fisico de foto acionado. Servidor confirmou o comando."
+                )
+                ws.send("BOTAO_FOTO_OK")
+                continue
+
             # LOG ENVIADO PELA ESP32
             if mensagem.startswith("LOG|"):
                 partes_log = mensagem.split("|", 2)
