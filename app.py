@@ -2073,6 +2073,22 @@ def arquivo_galeria(nome):
     return send_from_directory(PASTA_GALERIA, nome)
 
 # =========================================================
+# ESTADO LIVRE PARA NOVA FOTO (CONSULTA DA ESP32)
+# =========================================================
+
+def servidor_esta_livre_para_nova_foto():
+    """
+    A ESP32 só chama esta consulta quando ela própria está ociosa.
+    Aqui confirmamos o outro lado: IA/servidor sem trabalho e sem menu ativo.
+    """
+    with lock:
+        estado_atual = str(status_ia.get("estado", "")).upper().strip()
+        menu_ativo = bool(aguardando_resposta_menu)
+
+    return estado_atual == "AGUARDANDO" and not menu_ativo
+
+
+# =========================================================
 # WEBSOCKET
 # =========================================================
 
@@ -2132,6 +2148,15 @@ def websocket_esp32(ws):
                         partes_log[2]
                     )
 
+                continue
+
+            # CONSULTA: ESP32 localmente ociosa pergunta se servidor/IA também estão livres.
+            if mensagem == "STATUS_LIVRE?":
+                if servidor_esta_livre_para_nova_foto():
+                    ws.send("STATUS_LIVRE_OK")
+                    adicionar_log_esp32("OK", "ESP32 e servidor/IA livres para nova foto.")
+                else:
+                    ws.send("STATUS_OCUPADO")
                 continue
 
             # PING
