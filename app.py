@@ -335,6 +335,11 @@ audio {
     color: white;
 }
 
+#resetLimpo {
+    background: #da3633;
+    color: white;
+}
+
 #mensagemCamera {
     background: #161b22;
     border: 1px solid #30363d;
@@ -663,6 +668,10 @@ audio {
             🖼️ GALERIA
         </button>
 
+        <button id="resetLimpo">
+            🧹 RESET LIMPO
+        </button>
+
         <div id="mensagemCamera">
             Câmera pronta para comando.
         </div>
@@ -851,6 +860,7 @@ const player = document.getElementById("player");
 const mensagem = document.getElementById("mensagem");
 const botaoTirarFoto = document.getElementById("tirarFoto");
 const botaoGaleria = document.getElementById("galeria");
+const botaoResetLimpo = document.getElementById("resetLimpo");
 const mensagemCamera = document.getElementById("mensagemCamera");
 const galeriaModal = document.getElementById("galeriaModal");
 const galeriaGrid = document.getElementById("galeriaGrid");
@@ -1129,6 +1139,38 @@ async function verificarConfirmacao() {
 // ======================================================
 // CÂMERA
 // ======================================================
+
+botaoResetLimpo.onclick = async function() {
+    const confirmou = window.confirm(
+        "Limpar as memorias pendentes da ESP32 e reiniciar? Fotos e audios armazenados serao preservados."
+    );
+
+    if (!confirmou) return;
+
+    botaoResetLimpo.disabled = true;
+    mensagemCamera.textContent = "🧹 Solicitando reset limpo...";
+
+    try {
+        const resposta = await fetch("/reset-limpo", { method: "POST" });
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            throw new Error(dados.erro || "Falha ao solicitar reset limpo.");
+        }
+
+        mensagemCamera.textContent =
+            "✅ RESET LIMPO enviado. A ESP32 vai limpar os marcadores e reiniciar.";
+
+        setTimeout(function() {
+            botaoResetLimpo.disabled = false;
+        }, 6000);
+
+    } catch (erro) {
+        mensagemCamera.textContent = "❌ " + erro.message;
+        botaoResetLimpo.disabled = false;
+    }
+};
+
 
 botaoTirarFoto.onclick = async function() {
 
@@ -1704,6 +1746,29 @@ def limpar_logs():
 # =========================================================
 # TIRAR FOTO
 # =========================================================
+
+@app.route("/reset-limpo", methods=["POST"])
+def reset_limpo_esp32():
+    global esp_ws
+
+    if not esp_esta_online():
+        return jsonify({"erro": "ESP32 está desconectada."}), 503
+
+    with lock:
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({"erro": "Canal da ESP32 não está disponível."}), 503
+
+    try:
+        socket_atual.send("RESET_LIMPO")
+        adicionar_log_esp32("AVISO", "Comando RESET_LIMPO enviado para a ESP32.")
+    except Exception as erro:
+        print("ERRO AO ENVIAR RESET_LIMPO:", erro, flush=True)
+        return jsonify({"erro": "Falha ao enviar RESET_LIMPO para ESP32."}), 500
+
+    return jsonify({"ok": True, "comando": "RESET_LIMPO"})
+
 
 @app.route("/tirar-foto", methods=["POST"])
 def tirar_foto():
