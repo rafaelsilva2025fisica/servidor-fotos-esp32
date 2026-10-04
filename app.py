@@ -2212,6 +2212,43 @@ def websocket_esp32(ws):
                             "O áudio chegou à ESP32. Depois que terminar, escolha nos 15 segundos."
                         )
 
+            # AUDIO TERMINOU DE SER REPRODUZIDO NA ESP32
+            elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
+                partes = mensagem.split("|", 1)
+                audio_id = partes[1].strip() if len(partes) == 2 else ""
+
+                with lock:
+                    dados_audio = audios.get(audio_id)
+                    eh_menu = bool(dados_audio.get("menu", False)) if dados_audio else False
+
+                    if dados_audio is not None:
+                        dados_audio["reproduzido"] = True
+                        dados_audio["reproduzido_em"] = time.time()
+
+                adicionar_log_esp32(
+                    "OK",
+                    f"ESP32 confirmou reprodução completa do áudio {audio_id}."
+                )
+
+                # Áudio normal: a tarefa terminou. Libera o estado do servidor
+                # para que STATUS_LIVRE? possa receber STATUS_LIVRE_OK.
+                if not eh_menu:
+                    atualizar_status_ia(
+                        "AGUARDANDO",
+                        "⚪ IA AGUARDANDO",
+                        "Áudio reproduzido com sucesso. Aguardando uma nova foto."
+                    )
+                else:
+                    # Áudio de menu: terminou de tocar, mas ainda há a janela
+                    # de 15 segundos para o usuário escolher pelos cliques.
+                    atualizar_status_ia(
+                        "AGUARDANDO_ESCOLHA",
+                        "👆 AGUARDANDO SUA ESCOLHA",
+                        "Áudio reproduzido. Escolha o exercício durante a janela de 15 segundos."
+                    )
+
+                continue
+
             # ESCOLHA DE EXERCICIO PELOS CLIQUES
             elif mensagem.startswith("CLIQUES|"):
                 partes = mensagem.split("|", 1)
