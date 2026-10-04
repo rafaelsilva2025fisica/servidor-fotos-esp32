@@ -840,13 +840,8 @@ async function atualizarStatusIA() {
         const dados = await resposta.json();
         document.getElementById("iaStatusTitulo").textContent = dados.titulo || "⚪ IA AGUARDANDO";
         document.getElementById("iaStatusDetalhe").textContent = dados.detalhe || "";
-        const iaStatusTempo = document.getElementById("iaStatusTempo");
-        if (dados.estado === "AGUARDANDO") {
-            iaStatusTempo.textContent = "";
-        } else {
-            iaStatusTempo.textContent =
-                "Neste estado há " + (dados.segundos || 0) + " s";
-        }
+        document.getElementById("iaStatusTempo").textContent =
+            "Neste estado há " + (dados.segundos || 0) + " s";
     } catch (erro) {
         document.getElementById("iaStatusTitulo").textContent = "🔴 STATUS DA IA INDISPONÍVEL";
         document.getElementById("iaStatusDetalhe").textContent = "Não foi possível consultar o estado atual.";
@@ -2078,22 +2073,6 @@ def arquivo_galeria(nome):
     return send_from_directory(PASTA_GALERIA, nome)
 
 # =========================================================
-# ESTADO LIVRE PARA NOVA FOTO (CONSULTA DA ESP32)
-# =========================================================
-
-def servidor_esta_livre_para_nova_foto():
-    """
-    A ESP32 só chama esta consulta quando ela própria está ociosa.
-    Aqui confirmamos o outro lado: IA/servidor sem trabalho e sem menu ativo.
-    """
-    with lock:
-        estado_atual = str(status_ia.get("estado", "")).upper().strip()
-        menu_ativo = bool(aguardando_resposta_menu)
-
-    return estado_atual == "AGUARDANDO" and not menu_ativo
-
-
-# =========================================================
 # WEBSOCKET
 # =========================================================
 
@@ -2143,15 +2122,6 @@ def websocket_esp32(ws):
                 flush=True
             )
 
-            # BOTAO FISICO DE FOTO
-            if mensagem == "BOTAO_FOTO_ACIONADO":
-                adicionar_log_esp32(
-                    "INFO",
-                    "Botao fisico de foto acionado. Servidor confirmou o comando."
-                )
-                ws.send("BOTAO_FOTO_OK")
-                continue
-
             # LOG ENVIADO PELA ESP32
             if mensagem.startswith("LOG|"):
                 partes_log = mensagem.split("|", 2)
@@ -2162,15 +2132,6 @@ def websocket_esp32(ws):
                         partes_log[2]
                     )
 
-                continue
-
-            # CONSULTA: ESP32 localmente ociosa pergunta se servidor/IA também estão livres.
-            if mensagem == "STATUS_LIVRE?":
-                if servidor_esta_livre_para_nova_foto():
-                    ws.send("STATUS_LIVRE_OK")
-                    adicionar_log_esp32("OK", "ESP32 e servidor/IA livres para nova foto.")
-                else:
-                    ws.send("STATUS_OCUPADO")
                 continue
 
             # PING
@@ -2216,43 +2177,6 @@ def websocket_esp32(ws):
                             "👆 AGUARDANDO SUA ESCOLHA",
                             "O áudio chegou à ESP32. Depois que terminar, escolha nos 15 segundos."
                         )
-
-            # AUDIO TERMINOU DE SER REPRODUZIDO NA ESP32
-            elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
-                partes = mensagem.split("|", 1)
-                audio_id = partes[1].strip() if len(partes) == 2 else ""
-
-                with lock:
-                    dados_audio = audios.get(audio_id)
-                    eh_menu = bool(dados_audio.get("menu", False)) if dados_audio else False
-
-                    if dados_audio is not None:
-                        dados_audio["reproduzido"] = True
-                        dados_audio["reproduzido_em"] = time.time()
-
-                adicionar_log_esp32(
-                    "OK",
-                    f"ESP32 confirmou reprodução completa do áudio {audio_id}."
-                )
-
-                # Áudio normal: a tarefa terminou. Libera o estado do servidor
-                # para que STATUS_LIVRE? possa receber STATUS_LIVRE_OK.
-                if not eh_menu:
-                    atualizar_status_ia(
-                        "AGUARDANDO",
-                        "⚪ IA AGUARDANDO",
-                        "Áudio reproduzido com sucesso. Aguardando uma nova foto."
-                    )
-                else:
-                    # Áudio de menu: terminou de tocar, mas ainda há a janela
-                    # de 15 segundos para o usuário escolher pelos cliques.
-                    atualizar_status_ia(
-                        "AGUARDANDO_ESCOLHA",
-                        "👆 AGUARDANDO SUA ESCOLHA",
-                        "Áudio reproduzido. Escolha o exercício durante a janela de 15 segundos."
-                    )
-
-                continue
 
             # ESCOLHA DE EXERCICIO PELOS CLIQUES
             elif mensagem.startswith("CLIQUES|"):
