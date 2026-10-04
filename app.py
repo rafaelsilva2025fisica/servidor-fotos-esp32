@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, render_template_string, request, send_file, send_from_directory
+from werkzeug.utils import secure_filename
 from flask_sock import Sock
 import threading
 import time
@@ -41,6 +42,9 @@ lock = threading.Lock()
 ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
+
+# Arquivos enviados manualmente para /downloads no SD da ESP32
+arquivos_sd = {}
 
 # =========================================================
 # SESSAO ATUAL DE EXERCICIOS
@@ -337,6 +341,11 @@ audio {
 
 #resetLimpo {
     background: #da3633;
+    color: white;
+}
+
+#uploadEsp {
+    background: #238636;
     color: white;
 }
 
@@ -672,6 +681,15 @@ audio {
             🧹 RESET LIMPO
         </button>
 
+        <input id="arquivoEsp" type="file" style="display:none;">
+        <button id="uploadEsp">
+            📁 UPLOAD PARA ESP32
+        </button>
+
+        <div id="mensagemUploadEsp" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;color:#8b949e;font-size:13px;line-height:1.4;">
+            Arquivos serão salvos em /downloads no cartão SD.
+        </div>
+
         <div id="mensagemCamera">
             Câmera pronta para comando.
         </div>
@@ -861,6 +879,9 @@ const mensagem = document.getElementById("mensagem");
 const botaoTirarFoto = document.getElementById("tirarFoto");
 const botaoGaleria = document.getElementById("galeria");
 const botaoResetLimpo = document.getElementById("resetLimpo");
+const botaoUploadEsp = document.getElementById("uploadEsp");
+const arquivoEspInput = document.getElementById("arquivoEsp");
+const mensagemUploadEsp = document.getElementById("mensagemUploadEsp");
 const mensagemCamera = document.getElementById("mensagemCamera");
 const galeriaModal = document.getElementById("galeriaModal");
 const galeriaGrid = document.getElementById("galeriaGrid");
@@ -1135,6 +1156,76 @@ async function verificarConfirmacao() {
 }
 
 
+
+
+// ======================================================
+// UPLOAD DE ARQUIVO DIRETO PARA /downloads DA ESP32
+// ======================================================
+
+botaoUploadEsp.onclick = function() {
+    arquivoEspInput.value = "";
+    arquivoEspInput.click();
+};
+
+arquivoEspInput.onchange = async function() {
+    const arquivo = arquivoEspInput.files && arquivoEspInput.files[0];
+    if (!arquivo) return;
+
+    botaoUploadEsp.disabled = true;
+    mensagemUploadEsp.textContent = "📤 Enviando " + arquivo.name + " para o servidor...";
+
+    const formulario = new FormData();
+    formulario.append("arquivo", arquivo, arquivo.name);
+
+    try {
+        const resposta = await fetch("/upload-para-esp", {
+            method: "POST",
+            body: formulario
+        });
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            throw new Error(dados.erro || "Falha ao enviar arquivo.");
+        }
+
+        mensagemUploadEsp.textContent =
+            "⬇️ ESP32 baixando " + dados.nome + " para /downloads...";
+
+        const id = dados.arquivo_id;
+
+        async function verificarArquivo() {
+            try {
+                const r = await fetch("/arquivo-esp-status/" + id + "?t=" + Date.now(), {
+                    cache: "no-store"
+                });
+                const status = await r.json();
+
+                if (status.salvo === true) {
+                    mensagemUploadEsp.textContent =
+                        "✅ " + status.nome + " salvo em /downloads/" + status.nome;
+                    botaoUploadEsp.disabled = false;
+                    return;
+                }
+
+                if (status.erro) {
+                    throw new Error(status.erro);
+                }
+
+                setTimeout(verificarArquivo, 1000);
+            } catch (erro) {
+                mensagemUploadEsp.textContent = "❌ " + erro.message;
+                botaoUploadEsp.disabled = false;
+            }
+        }
+
+        verificarArquivo();
+
+    } catch (erro) {
+        mensagemUploadEsp.textContent = "❌ " + erro.message;
+        botaoUploadEsp.disabled = false;
+    }
+};
 
 // ======================================================
 // CÂMERA
@@ -1535,6 +1626,96 @@ def enviar_audio():
         "canais": 2,
         "tamanho": tamanho_wav
     })
+
+
+
+# =========================================================
+# UPLOAD MANUAL -> /downloads DA ESP32
+# =========================================================
+
+@app.route("/upload-para-esp", methods=["POST"])
+def upload_para_esp():
+    global esp_ws
+
+    if "arquivo" not in request.files:
+        return jsonify({"erro": "Nenhum arquivo selecionado."}), 400
+
+    if not esp_esta_online():
+        return jsonify({"erro": "ESP32 está desconectada."}), 503
+
+    recebido = request.files["arquivo"]
+    nome = secure_filename(recebido.filename or "")
+
+    if not nome:
+        return jsonify({"erro": "Nome de arquivo inválido."}), 400
+
+    arquivo_id = uuid.uuid4().hex[:12]
+    caminho = os.path.join(AUDIO_DIR, "sd_" + arquivo_id + "_" + nome)
+    recebido.save(caminho)
+
+    if not os.path.exists(caminho) or os.path.getsize(caminho) <= 0:
+        return jsonify({"erro": "Arquivo vazio ou não foi salvo no servidor."}), 400
+
+    with lock:
+        arquivos_sd[arquivo_id] = {
+            "arquivo": caminho,
+            "nome": nome,
+            "salvo": False,
+            "criado": time.time()
+        }
+        socket_atual = esp_ws
+
+    if socket_atual is None:
+        return jsonify({"erro": "Canal da ESP32 não está disponível."}), 503
+
+    comando = f"ARQUIVO_SD|{arquivo_id}|{nome}"
+
+    try:
+        socket_atual.send(comando)
+        adicionar_log_esp32(
+            "INFO",
+            f"Upload solicitado para /downloads/{nome} ({os.path.getsize(caminho)} bytes)."
+        )
+    except Exception as erro:
+        return jsonify({"erro": f"Falha ao avisar a ESP32: {erro}"}), 500
+
+    return jsonify({
+        "ok": True,
+        "arquivo_id": arquivo_id,
+        "nome": nome,
+        "tamanho": os.path.getsize(caminho)
+    })
+
+
+@app.route("/arquivo-esp/<arquivo_id>", methods=["GET"])
+def baixar_arquivo_esp(arquivo_id):
+    with lock:
+        dados = arquivos_sd.get(arquivo_id)
+
+    if dados is None:
+        return jsonify({"erro": "Arquivo não encontrado."}), 404
+
+    caminho = dados["arquivo"]
+    if not os.path.exists(caminho):
+        return jsonify({"erro": "Arquivo não existe mais no servidor."}), 404
+
+    return send_file(
+        caminho,
+        as_attachment=False,
+        download_name=dados["nome"]
+    )
+
+
+@app.route("/arquivo-esp-status/<arquivo_id>", methods=["GET"])
+def status_arquivo_esp(arquivo_id):
+    with lock:
+        dados = arquivos_sd.get(arquivo_id)
+        if dados is None:
+            return jsonify({"salvo": False, "erro": "Arquivo não encontrado."}), 404
+        return jsonify({
+            "salvo": bool(dados.get("salvo", False)),
+            "nome": dados.get("nome", "")
+        })
 
 
 # =========================================================
@@ -2268,6 +2449,23 @@ def websocket_esp32(ws):
             elif mensagem == "PRONTO":
 
                 ws.send("PRONTO_OK")
+
+            # ARQUIVO MANUAL SALVO NO SD
+            elif mensagem.startswith("ARQUIVO_SD_SALVO|"):
+                partes = mensagem.split("|", 2)
+                arquivo_id = partes[1].strip() if len(partes) > 1 else ""
+                nome = partes[2].strip() if len(partes) > 2 else ""
+
+                with lock:
+                    dados_arquivo = arquivos_sd.get(arquivo_id)
+                    if dados_arquivo is not None:
+                        dados_arquivo["salvo"] = True
+
+                adicionar_log_esp32(
+                    "OK",
+                    f"ESP32 confirmou /downloads/{nome}."
+                )
+                continue
 
             # AUDIO RECEBIDO
 
