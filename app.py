@@ -1463,6 +1463,16 @@ def enviar_audio():
             flush=True
         )
 
+        # Áudio enviado manualmente pelo site também coloca o sistema
+        # em OCUPADO. Quando a ESP32 confirmar AUDIO_REPRODUZIDO,
+        # o handler já existente volta para AGUARDANDO e dispara
+        # SISTEMA_LIVRE, fazendo as 3 piscadas.
+        atualizar_status_ia(
+            "AUDIO_MANUAL_ENVIADO",
+            "📤 ÁUDIO ENVIADO PARA ESP32",
+            "Áudio manual enviado. Aguardando a ESP32 terminar a reprodução."
+        )
+
     except Exception as erro:
 
         print(
@@ -1983,6 +1993,24 @@ def analisar_foto_nova_com_ia(caminho, nome):
             quantidade_exercicios_sessao = quantidade
         adicionar_log_esp32("OK", f"IA identificou {quantidade} exercício(s) na foto nova.")
         atualizar_status_ia("IDENTIFICADOS", f"🟢 {quantidade} EXERCÍCIO(S) IDENTIFICADO(S)", "A leitura terminou. Agora vou preparar o áudio com as opções.")
+
+        # Confirmação visual na ESP32: a IA realmente terminou de ler a foto.
+        # Não dispara apenas porque a foto chegou ao servidor.
+        with lock:
+            socket_atual = esp_ws
+
+        if socket_atual is not None:
+            try:
+                socket_atual.send("IA_LEU_FOTO")
+                adicionar_log_esp32(
+                    "OK",
+                    "IA terminou de ler a foto; comando IA_LEU_FOTO enviado à ESP32."
+                )
+            except Exception as erro:
+                adicionar_log_esp32(
+                    "AVISO",
+                    f"IA leu a foto, mas não foi possível enviar IA_LEU_FOTO à ESP32: {erro}"
+                )
 
         texto_menu = (
             f"Identifiquei {quantidade} exercício" + ("" if quantidade == 1 else "s") + ". "
