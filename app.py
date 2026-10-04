@@ -840,8 +840,13 @@ async function atualizarStatusIA() {
         const dados = await resposta.json();
         document.getElementById("iaStatusTitulo").textContent = dados.titulo || "⚪ IA AGUARDANDO";
         document.getElementById("iaStatusDetalhe").textContent = dados.detalhe || "";
-        document.getElementById("iaStatusTempo").textContent =
-            "Neste estado há " + (dados.segundos || 0) + " s";
+        const iaStatusTempo = document.getElementById("iaStatusTempo");
+        if (dados.estado === "AGUARDANDO") {
+            iaStatusTempo.textContent = "";
+        } else {
+            iaStatusTempo.textContent =
+                "Neste estado há " + (dados.segundos || 0) + " s";
+        }
     } catch (erro) {
         document.getElementById("iaStatusTitulo").textContent = "🔴 STATUS DA IA INDISPONÍVEL";
         document.getElementById("iaStatusDetalhe").textContent = "Não foi possível consultar o estado atual.";
