@@ -65,13 +65,39 @@ status_ia = {
 
 def atualizar_status_ia(estado, titulo, detalhe):
     global status_ia
+
     with lock:
+        estado_anterior = str(status_ia.get("estado", "AGUARDANDO")).upper().strip()
+
         status_ia = {
             "estado": estado,
             "titulo": titulo,
             "detalhe": detalhe,
             "inicio": time.time()
         }
+
+        socket_atual = esp_ws
+
+    estado_novo = str(estado).upper().strip()
+
+    # O servidor é a fonte do estado LIVRE/OCUPADO.
+    # Só avisa a ESP32 quando houver uma transição REAL:
+    # qualquer estado ocupado -> AGUARDANDO.
+    if estado_anterior != "AGUARDANDO" and estado_novo == "AGUARDANDO":
+        if socket_atual is not None:
+            try:
+                socket_atual.send("SISTEMA_LIVRE")
+                adicionar_log_esp32(
+                    "OK",
+                    "Servidor mudou de OCUPADO para LIVRE e avisou a ESP32."
+                )
+            except Exception as erro:
+                print(
+                    ">>> NAO FOI POSSIVEL ENVIAR SISTEMA_LIVRE:",
+                    repr(erro),
+                    flush=True
+                )
+
     print(f"STATUS IA [{estado}] {titulo} - {detalhe}", flush=True)
 
 def adicionar_log_esp32(nivel, mensagem):
@@ -579,6 +605,7 @@ audio {
 
         <div class="ia-status-card">
             <div class="ia-status-topo">🤖 STATUS DA IA</div>
+            <div id="sistemaOcupacao" style="font-size:18px; font-weight:bold; margin-bottom:10px;">🟢 SISTEMA LIVRE</div>
             <div id="iaStatusTitulo">⚪ IA AGUARDANDO</div>
             <div id="iaStatusDetalhe">Aguardando uma nova foto ou uma escolha de exercício.</div>
             <div id="iaStatusTempo">Neste estado há 0 s</div>
@@ -840,6 +867,8 @@ async function atualizarStatusIA() {
         const dados = await resposta.json();
         document.getElementById("iaStatusTitulo").textContent = dados.titulo || "⚪ IA AGUARDANDO";
         document.getElementById("iaStatusDetalhe").textContent = dados.detalhe || "";
+        document.getElementById("sistemaOcupacao").textContent =
+            dados.sistema_livre ? "🟢 SISTEMA LIVRE" : "🟠 SISTEMA OCUPADO";
         document.getElementById("iaStatusTempo").textContent =
             "Neste estado há " + (dados.segundos || 0) + " s";
     } catch (erro) {
@@ -1245,7 +1274,8 @@ def api_status_ia():
         "estado": dados.get("estado", "AGUARDANDO"),
         "titulo": dados.get("titulo", "⚪ IA AGUARDANDO"),
         "detalhe": dados.get("detalhe", ""),
-        "segundos": segundos
+        "segundos": segundos,
+        "sistema_livre": str(dados.get("estado", "AGUARDANDO")).upper().strip() == "AGUARDANDO"
     })
 
 
@@ -2177,6 +2207,35 @@ def websocket_esp32(ws):
                             "👆 AGUARDANDO SUA ESCOLHA",
                             "O áudio chegou à ESP32. Depois que terminar, escolha nos 15 segundos."
                         )
+
+            # AUDIO TERMINOU DE SER REPRODUZIDO NA ESP32
+            elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
+                partes = mensagem.split("|", 1)
+                audio_id = partes[1].strip() if len(partes) == 2 else ""
+
+                with lock:
+                    dados_audio = audios.get(audio_id)
+                    eh_menu = bool(dados_audio.get("menu", False)) if dados_audio else False
+
+                    if dados_audio is not None:
+                        dados_audio["reproduzido"] = True
+                        dados_audio["reproduzido_em"] = time.time()
+
+                adicionar_log_esp32(
+                    "OK",
+                    f"ESP32 confirmou reprodução completa do áudio {audio_id}."
+                )
+
+                # Áudio normal encerra o serviço.
+                # Áudio de menu continua ocupado até chegar CLIQUES|n.
+                if not eh_menu:
+                    atualizar_status_ia(
+                        "AGUARDANDO",
+                        "⚪ IA AGUARDANDO",
+                        "Áudio reproduzido. Aguardando uma nova foto."
+                    )
+
+                continue
 
             # ESCOLHA DE EXERCICIO PELOS CLIQUES
             elif mensagem.startswith("CLIQUES|"):
