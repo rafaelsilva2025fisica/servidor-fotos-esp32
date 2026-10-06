@@ -2038,7 +2038,7 @@ def preparar_texto_para_tts(texto):
     return texto
 
 
-def criar_e_enviar_audio_ia(texto, menu=False):
+def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
     global esp_ws, aguardando_resposta_menu
 
     texto = (texto or "").strip()
@@ -2067,7 +2067,8 @@ def criar_e_enviar_audio_ia(texto, menu=False):
             model=OPENAI_TTS_MODEL,
             voice=OPENAI_TTS_VOICE,
             input=texto,
-            response_format="mp3"
+            response_format="mp3",
+            speed=velocidade
         )
 
         resposta_audio.stream_to_file(caminho_mp3)
@@ -2700,7 +2701,7 @@ def websocket_esp32(ws):
                             "Agora você pode escolher novamente. "
                             + texto_menu_exercicios(total_exercicios)
                         )
-                        criar_e_enviar_audio_ia(texto_final, menu=True)
+                        criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=0.6)
 
                     except Exception as erro:
                         print(">>> ERRO AO RESOLVER PELA FOTO:", repr(erro), flush=True)
