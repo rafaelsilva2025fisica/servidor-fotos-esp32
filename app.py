@@ -602,6 +602,19 @@ audio {
 #desativarMaterial { background:#8b949e; color:white; }
 #novoMaterialGaleria { background:#1f6feb; color:white; }
 
+/* GALERIA DE ÁUDIOS */
+#audiosGaleria { background:#d29922; color:white; }
+.audio-galeria-card {
+    background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px;
+}
+.audio-galeria-titulo { font-weight:bold; margin-bottom:6px; overflow-wrap:anywhere; }
+.audio-galeria-info { color:#8b949e; font-size:12px; margin-bottom:10px; }
+.audio-galeria-card audio { width:100%; margin:8px 0 12px; }
+.audio-galeria-acoes { display:flex; gap:8px; flex-wrap:wrap; }
+.audio-galeria-acoes button { padding:9px 11px; font-size:12px; }
+.excluir-audio { background:#da3633; color:white; }
+#apagarTodosAudios { background:#da3633; color:white; }
+
 </style>
 
 </head>
@@ -723,6 +736,10 @@ audio {
             Nenhum material-base ativo.
         </div>
 
+        <button id="audiosGaleria">
+            🔊 GALERIA DE ÁUDIOS
+        </button>
+
         <div id="mensagemCamera">
             Câmera pronta para comando.
         </div>
@@ -753,6 +770,19 @@ audio {
             <button id="desativarMaterial">DESATIVAR MATERIAL</button>
         </div>
         <div id="materiaisGrid" class="galeria-grid"></div>
+    </div>
+</div>
+
+<div id="audiosModal" class="galeria-modal">
+    <div class="galeria-caixa">
+        <div class="galeria-topo">
+            <h2>🔊 Galeria de Áudios</h2>
+            <button id="fecharAudios">FECHAR</button>
+        </div>
+        <div class="botoes" style="margin-top:0; margin-bottom:18px;">
+            <button id="apagarTodosAudios">🗑 APAGAR TODOS</button>
+        </div>
+        <div id="audiosGrid" class="galeria-grid"></div>
     </div>
 </div>
 
@@ -941,6 +971,11 @@ const mensagemCamera = document.getElementById("mensagemCamera");
 const galeriaModal = document.getElementById("galeriaModal");
 const galeriaGrid = document.getElementById("galeriaGrid");
 const fecharGaleria = document.getElementById("fecharGaleria");
+const botaoAudiosGaleria = document.getElementById("audiosGaleria");
+const audiosModal = document.getElementById("audiosModal");
+const audiosGrid = document.getElementById("audiosGrid");
+const fecharAudios = document.getElementById("fecharAudios");
+const apagarTodosAudios = document.getElementById("apagarTodosAudios");
 
 
 // ======================================================
@@ -1382,6 +1417,105 @@ async function consultarMaterialBase() {
 consultarMaterialBase();
 
 // ======================================================
+// GALERIA DE ÁUDIOS
+// ======================================================
+
+botaoAudiosGaleria.onclick = async function() {
+    audiosModal.classList.add("aberta");
+    await carregarAudios();
+};
+
+fecharAudios.onclick = function() {
+    audiosModal.classList.remove("aberta");
+};
+
+audiosModal.onclick = function(evento) {
+    if (evento.target === audiosModal) audiosModal.classList.remove("aberta");
+};
+
+async function carregarAudios() {
+    audiosGrid.innerHTML = '<div class="galeria-vazia">Carregando áudios...</div>';
+
+    try {
+        const resposta = await fetch("/api/audios?t=" + Date.now(), {cache:"no-store"});
+        const dados = await resposta.json();
+        if (!resposta.ok) throw new Error(dados.erro || "Erro ao carregar áudios.");
+
+        if (!dados.audios || dados.audios.length === 0) {
+            audiosGrid.innerHTML = '<div class="galeria-vazia">Ainda não há áudios no servidor.</div>';
+            return;
+        }
+
+        audiosGrid.innerHTML = "";
+
+        dados.audios.forEach(function(item) {
+            const card = document.createElement("div");
+            card.className = "audio-galeria-card";
+
+            const titulo = document.createElement("div");
+            titulo.className = "audio-galeria-titulo";
+            titulo.textContent = "🔊 " + item.titulo;
+
+            const info = document.createElement("div");
+            info.className = "audio-galeria-info";
+            info.textContent = item.hora + " • " + item.tamanho_formatado;
+
+            const playerAudio = document.createElement("audio");
+            playerAudio.controls = true;
+            playerAudio.preload = "metadata";
+            playerAudio.src = item.url;
+
+            const acoes = document.createElement("div");
+            acoes.className = "audio-galeria-acoes";
+
+            const excluir = document.createElement("button");
+            excluir.className = "excluir-audio";
+            excluir.textContent = "🗑 EXCLUIR";
+            excluir.onclick = async function() {
+                if (!confirm("Excluir este áudio do servidor?")) return;
+
+                const r = await fetch("/api/audios/" + encodeURIComponent(item.id), {
+                    method:"DELETE"
+                });
+                const d = await r.json();
+
+                if (!r.ok) {
+                    alert(d.erro || "Não foi possível excluir o áudio.");
+                    return;
+                }
+
+                await carregarAudios();
+            };
+
+            acoes.appendChild(excluir);
+            card.appendChild(titulo);
+            card.appendChild(info);
+            card.appendChild(playerAudio);
+            card.appendChild(acoes);
+            audiosGrid.appendChild(card);
+        });
+
+    } catch (erro) {
+        audiosGrid.innerHTML = '<div class="galeria-vazia">❌ ' + erro.message + '</div>';
+    }
+}
+
+apagarTodosAudios.onclick = async function() {
+    if (!confirm("Apagar TODOS os áudios que já foram recebidos pela ESP32?")) return;
+
+    const r = await fetch("/api/audios", {method:"DELETE"});
+    const d = await r.json();
+
+    if (!r.ok) {
+        alert(d.erro || "Não foi possível apagar os áudios.");
+        return;
+    }
+
+    await carregarAudios();
+};
+
+
+// ======================================================
 // CÂMERA
 // ======================================================
 
@@ -1727,6 +1861,8 @@ def enviar_audio():
             "recebido": False,
             "criado": time.time(),
             "menu": False,
+            "tipo_galeria": "manual",
+            "titulo_galeria": "Áudio manual",
             "tentativas_recuperacao": 0
         }
 
@@ -1781,6 +1917,140 @@ def enviar_audio():
         "tamanho": tamanho_wav
     })
 
+
+
+# =========================================================
+# GALERIA DE ÁUDIOS
+# Permite ouvir no navegador os mesmos WAVs enviados à ESP32.
+# =========================================================
+
+def _formatar_tamanho_audio(tamanho):
+    tamanho = int(tamanho or 0)
+    if tamanho >= 1024 * 1024:
+        return f"{tamanho / (1024 * 1024):.1f} MB"
+    if tamanho >= 1024:
+        return f"{tamanho / 1024:.0f} KB"
+    return f"{tamanho} B"
+
+
+@app.route("/api/audios", methods=["GET"])
+def api_audios():
+    itens = []
+
+    with lock:
+        snapshot = [
+            (audio_id, dict(info))
+            for audio_id, info in audios.items()
+        ]
+
+    for audio_id, info in snapshot:
+        caminho = info.get("arquivo")
+        if not caminho or not os.path.exists(caminho):
+            continue
+
+        criado = float(info.get("criado") or 0)
+        titulo = str(info.get("titulo_galeria") or "").strip()
+
+        if not titulo:
+            titulo = "Menu da foto" if info.get("menu") else "Áudio"
+
+        itens.append({
+            "id": audio_id,
+            "titulo": titulo,
+            "tipo": info.get("tipo_galeria", "audio"),
+            "hora": datetime.fromtimestamp(criado).strftime("%d/%m/%Y %H:%M:%S") if criado else "",
+            "criado": criado,
+            "recebido": bool(info.get("recebido")),
+            "tamanho": os.path.getsize(caminho),
+            "tamanho_formatado": _formatar_tamanho_audio(os.path.getsize(caminho)),
+            "url": f"/api/audios/{audio_id}/arquivo"
+        })
+
+    itens.sort(key=lambda item: item["criado"], reverse=True)
+    return jsonify({"ok": True, "audios": itens})
+
+
+@app.route("/api/audios/<audio_id>/arquivo", methods=["GET"])
+def ouvir_audio_galeria(audio_id):
+    with lock:
+        info = dict(audios.get(audio_id) or {})
+
+    caminho = info.get("arquivo")
+    if not caminho or not os.path.exists(caminho):
+        return jsonify({"erro": "Áudio não encontrado."}), 404
+
+    return send_file(
+        caminho,
+        mimetype="audio/wav",
+        conditional=True,
+        download_name=os.path.basename(caminho)
+    )
+
+
+@app.route("/api/audios/<audio_id>", methods=["DELETE"])
+def excluir_audio_galeria(audio_id):
+    with lock:
+        info = dict(audios.get(audio_id) or {})
+
+    if not info:
+        return jsonify({"erro": "Áudio não encontrado."}), 404
+
+    # Não apaga enquanto a ESP32 ainda pode precisar baixar o WAV.
+    if not info.get("recebido"):
+        return jsonify({
+            "erro": "A ESP32 ainda não confirmou o recebimento deste áudio. Aguarde antes de excluir."
+        }), 409
+
+    caminho = info.get("arquivo")
+    try:
+        if caminho and os.path.exists(caminho):
+            os.remove(caminho)
+    except Exception as erro:
+        return jsonify({"erro": f"Falha ao apagar o arquivo: {erro}"}), 500
+
+    with lock:
+        audios.pop(audio_id, None)
+
+    adicionar_log_esp32("INFO", f"Áudio {audio_id} excluído da galeria do servidor.")
+    return jsonify({"ok": True, "audio_id": audio_id})
+
+
+@app.route("/api/audios", methods=["DELETE"])
+def excluir_todos_audios_galeria():
+    apagados = 0
+    preservados = 0
+
+    with lock:
+        snapshot = [
+            (audio_id, dict(info))
+            for audio_id, info in audios.items()
+        ]
+
+    for audio_id, info in snapshot:
+        # Preserva qualquer áudio que ainda não foi confirmado pela ESP32.
+        if not info.get("recebido"):
+            preservados += 1
+            continue
+
+        caminho = info.get("arquivo")
+        try:
+            if caminho and os.path.exists(caminho):
+                os.remove(caminho)
+            with lock:
+                audios.pop(audio_id, None)
+            apagados += 1
+        except Exception:
+            preservados += 1
+
+    adicionar_log_esp32(
+        "INFO",
+        f"Limpeza da galeria de áudios: {apagados} apagado(s), {preservados} preservado(s)."
+    )
+    return jsonify({
+        "ok": True,
+        "apagados": apagados,
+        "preservados": preservados
+    })
 
 
 # =========================================================
@@ -2389,6 +2659,15 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
                 "recebido": False,
                 "criado": time.time(),
                 "menu": bool(menu),
+                "tipo_galeria": (
+                    "resolucao" if float(velocidade) < 0.99
+                    else ("menu" if menu else "ia")
+                ),
+                "titulo_galeria": (
+                    "Resolução de exercício"
+                    if float(velocidade) < 0.99
+                    else ("Menu da foto" if menu else "Resposta da IA")
+                ),
                 "tentativas_recuperacao": 0
             }
             socket_atual = esp_ws
