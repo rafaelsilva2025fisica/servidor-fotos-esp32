@@ -3186,6 +3186,43 @@ def websocket_esp32(ws):
                         # Captura o material ativo no momento da resolução.
                         arquivo_base_id = material_base_file_id
 
+                        # Enunciado já extraído na primeira leitura da foto.
+                        enunciado_exercicio = ""
+                        for item_exercicio in opcoes_exercicios:
+                            if str(item_exercicio.get("numero", "")).strip() == str(numero).strip():
+                                enunciado_exercicio = str(item_exercicio.get("enunciado", "")).strip()
+                                break
+
+                        # Decide automaticamente se é objetiva ou resposta escrita/cálculo.
+                        resposta_tipo = openai_client.responses.create(
+                            model=OPENAI_MODEL,
+                            input=[{
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": (
+                                            f"Classifique SOMENTE o exercício {numero}. "
+                                            "Responda apenas OBJETIVA ou ESCRITA. "
+                                            "OBJETIVA: múltipla escolha ou alternativas para marcar, inclusive questões teóricas A, B, C, D, E. "
+                                            "ESCRITA: cálculo desenvolvido, matemática, física, discursiva, texto, demonstração ou resposta que precisa ser desenvolvida."
+                                        )
+                                    },
+                                    {
+                                        "type": "input_image",
+                                        "image_url": "data:image/jpeg;base64," + imagem_b64
+                                    }
+                                ]
+                            }]
+                        )
+                        tipo_exercicio = (resposta_tipo.output_text or "ESCRITA").strip().upper()
+                        eh_objetiva = "OBJETIVA" in tipo_exercicio
+                        velocidade_audio = 1.2 if eh_objetiva else 0.8
+                        adicionar_log_esp32(
+                            "INFO",
+                            f"Exercício {numero}: {'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
+                        )
+
                         conteudo_ia = [
                                     {
                                         "type": "input_text",
@@ -3195,7 +3232,7 @@ def websocket_esp32(ws):
                                             "A resposta será convertida em áudio para uma pessoa copiar a resolução no caderno. "
 
                                             "Produza SOMENTE O GUIA DE ESCRITA FIEL DA RESOLUÇÃO. "
-                                            "Não dê prévia, não explique o enunciado, não ensine como fazer e não justifique operações. "
+                                            "O enunciado será lido separadamente antes da resolução; não repita o enunciado aqui. Não dê prévia, não ensine como fazer e não justifique operações. "
                                             "Não use comentários como 'vamos fazer', 'precisamos', 'observe que', 'como sabemos', "
                                             "'mantenha', 'continue', 'permanece' ou 'agora calculamos'. "
                                             "A pessoa quer apenas ouvir exatamente o que deve escrever, linha por linha. "
@@ -3260,6 +3297,17 @@ def websocket_esp32(ws):
                                     }
                         ]
 
+                        if eh_objetiva:
+                            conteudo_ia[0]["text"] = (
+                                f"Observe novamente esta imagem original e responda SOMENTE o exercício {numero}. "
+                                "Leia tudo DIRETAMENTE DA FOTO e confira cuidadosamente antes de responder. "
+                                "É uma questão objetiva. Identifique a alternativa correta e explique de forma clara e direta por que ela está correta. "
+                                "Quando for útil, explique brevemente por que as demais estão erradas. "
+                                "Não repita o enunciado, pois ele será lido separadamente antes da resposta. "
+                                "Não use guia de escrita linha por linha, markdown, tabelas ou comandos LaTeX. "
+                                "Não invente informação ilegível e não responda outros exercícios."
+                            )
+
                         if arquivo_base_id:
                             conteudo_ia.append({
                                 "type": "input_file",
@@ -3293,12 +3341,25 @@ def websocket_esp32(ws):
                         if not resolucao:
                             resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
 
+                        # O áudio sempre lê primeiro o enunciado completo da questão selecionada.
+                        if enunciado_exercicio:
+                            abertura_audio = f"Exercício {numero}. Enunciado: {enunciado_exercicio}. "
+                        else:
+                            abertura_audio = f"Exercício {numero}. "
+
+                        abertura_audio += "Resposta. " if eh_objetiva else "Resolução. "
+
                         texto_final = (
-                            f"Exercício {numero}. {resolucao} "
+                            abertura_audio
+                            + resolucao + " "
                             "Agora você pode escolher novamente. "
                             + texto_menu_exercicios(opcoes_exercicios)
                         )
-                        criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=0.6)
+                        criar_e_enviar_audio_ia(
+                            texto_final,
+                            menu=True,
+                            velocidade=velocidade_audio
+                        )
 
                     except Exception as erro:
                         print(">>> ERRO AO RESOLVER PELA FOTO:", repr(erro), flush=True)
