@@ -59,6 +59,7 @@ quantidade_exercicios_sessao = 0
 # Também pode ser definido no Render por MATERIAL_BASE_FILE_ID.
 material_base_file_id = os.environ.get("MATERIAL_BASE_FILE_ID", "").strip() or None
 material_base_nome = "material configurado no Render" if material_base_file_id else None
+MATERIAL_BASE_PREFIXO = "materialbase__"
 
 
 logs_esp32 = []
@@ -587,6 +588,20 @@ audio {
     }
 }
 
+/* GALERIA DE MATERIAIS */
+.material-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 14px;
+}
+.material-card.ativo { outline: 2px solid #3fb950; }
+.material-nome { font-weight: bold; overflow-wrap: anywhere; margin-bottom: 8px; }
+.material-status { color: #8b949e; font-size: 12px; margin-bottom: 10px; }
+.material-acoes { display:flex; flex-wrap:wrap; gap:8px; }
+.material-acoes button { padding:9px 11px; font-size:12px; }
+.usar-material { background:#238636; color:white; }
+.excluir-material { background:#da3633; color:white; }
+#desativarMaterial { background:#8b949e; color:white; }
+#novoMaterialGaleria { background:#1f6feb; color:white; }
+
 </style>
 
 </head>
@@ -702,10 +717,10 @@ audio {
 
         <input id="materialBaseInput" type="file" accept=".pdf,.txt,.md,.doc,.docx" style="display:none;">
         <button id="uploadMaterialBase">
-            📚 MATERIAL-BASE DA IA
+            📚 GALERIA DE MATERIAIS
         </button>
         <div id="mensagemMaterialBase" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;color:#8b949e;font-size:13px;line-height:1.4;">
-            Nenhum material-base enviado nesta execução.
+            Nenhum material-base ativo.
         </div>
 
         <div id="mensagemCamera">
@@ -724,6 +739,20 @@ audio {
             <button id="fecharGaleria">FECHAR</button>
         </div>
         <div id="galeriaGrid" class="galeria-grid"></div>
+    </div>
+</div>
+
+<div id="materiaisModal" class="galeria-modal">
+    <div class="galeria-caixa">
+        <div class="galeria-topo">
+            <h2>📚 Galeria de Materiais</h2>
+            <button id="fecharMateriais">FECHAR</button>
+        </div>
+        <div class="botoes" style="margin-top:0; margin-bottom:18px;">
+            <button id="novoMaterialGaleria">+ ADICIONAR MATERIAL</button>
+            <button id="desativarMaterial">DESATIVAR MATERIAL</button>
+        </div>
+        <div id="materiaisGrid" class="galeria-grid"></div>
     </div>
 </div>
 
@@ -903,6 +932,11 @@ const mensagemUploadEsp = document.getElementById("mensagemUploadEsp");
 const botaoUploadMaterialBase = document.getElementById("uploadMaterialBase");
 const materialBaseInput = document.getElementById("materialBaseInput");
 const mensagemMaterialBase = document.getElementById("mensagemMaterialBase");
+const materiaisModal = document.getElementById("materiaisModal");
+const materiaisGrid = document.getElementById("materiaisGrid");
+const fecharMateriais = document.getElementById("fecharMateriais");
+const novoMaterialGaleria = document.getElementById("novoMaterialGaleria");
+const desativarMaterial = document.getElementById("desativarMaterial");
 const mensagemCamera = document.getElementById("mensagemCamera");
 const galeriaModal = document.getElementById("galeriaModal");
 const galeriaGrid = document.getElementById("galeriaGrid");
@@ -1249,48 +1283,101 @@ arquivoEspInput.onchange = async function() {
 };
 
 // ======================================================
-// MATERIAL-BASE DA IA
+// GALERIA DE MATERIAIS DA IA
 // ======================================================
 
-botaoUploadMaterialBase.onclick = function() {
+botaoUploadMaterialBase.onclick = async function() {
+    materiaisModal.classList.add("aberta");
+    await carregarMateriais();
+};
+
+novoMaterialGaleria.onclick = function() {
     materialBaseInput.value = "";
     materialBaseInput.click();
+};
+
+fecharMateriais.onclick = function() {
+    materiaisModal.classList.remove("aberta");
+};
+
+materiaisModal.onclick = function(evento) {
+    if (evento.target === materiaisModal) materiaisModal.classList.remove("aberta");
 };
 
 materialBaseInput.onchange = async function() {
     const arquivo = materialBaseInput.files && materialBaseInput.files[0];
     if (!arquivo) return;
-
-    botaoUploadMaterialBase.disabled = true;
-    mensagemMaterialBase.textContent = "📤 Enviando material-base para a IA...";
-
+    novoMaterialGaleria.disabled = true;
+    mensagemMaterialBase.textContent = "📤 Adicionando material à galeria...";
     const formulario = new FormData();
     formulario.append("arquivo", arquivo, arquivo.name);
-
     try {
-        const resposta = await fetch("/material-base", {
-            method: "POST",
-            body: formulario
-        });
+        const resposta = await fetch("/material-base", {method:"POST", body:formulario});
         const dados = await resposta.json();
-        if (!resposta.ok) throw new Error(dados.erro || "Falha ao enviar material-base.");
-        mensagemMaterialBase.textContent =
-            "✅ Material-base ativo: " + dados.nome + ". Será usado ao resolver exercícios do submenu.";
+        if (!resposta.ok) throw new Error(dados.erro || "Falha ao enviar material.");
+        mensagemMaterialBase.textContent = "✅ Material ativo: " + dados.nome;
+        await carregarMateriais();
     } catch (erro) {
         mensagemMaterialBase.textContent = "❌ " + erro.message;
     } finally {
-        botaoUploadMaterialBase.disabled = false;
+        novoMaterialGaleria.disabled = false;
     }
+};
+
+async function carregarMateriais() {
+    materiaisGrid.innerHTML = '<div class="galeria-vazia">Carregando materiais...</div>';
+    try {
+        const resposta = await fetch("/api/materiais?t=" + Date.now(), {cache:"no-store"});
+        const dados = await resposta.json();
+        if (!resposta.ok) throw new Error(dados.erro || "Erro ao carregar materiais.");
+        if (!dados.materiais || dados.materiais.length === 0) {
+            materiaisGrid.innerHTML = '<div class="galeria-vazia">Nenhum material cadastrado.</div>';
+            return;
+        }
+        materiaisGrid.innerHTML = "";
+        dados.materiais.forEach(function(mat) {
+            const card=document.createElement("div");
+            card.className="material-card" + (mat.ativo ? " ativo" : "");
+            const nome=document.createElement("div");
+            nome.className="material-nome"; nome.textContent=(mat.ativo ? "🟢 " : "⚪ ") + mat.nome;
+            const status=document.createElement("div");
+            status.className="material-status"; status.textContent=mat.ativo ? "MATERIAL ATIVO" : "Disponível";
+            const acoes=document.createElement("div"); acoes.className="material-acoes";
+            if (!mat.ativo) {
+                const usar=document.createElement("button"); usar.className="usar-material"; usar.textContent="USAR ESTE";
+                usar.onclick=async function(){
+                    const r=await fetch("/material-base/ativar", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({file_id:mat.file_id})});
+                    const d=await r.json(); if(!r.ok){alert(d.erro||"Falha ao ativar.");return;}
+                    mensagemMaterialBase.textContent="✅ Material ativo: " + d.nome; await carregarMateriais();
+                };
+                acoes.appendChild(usar);
+            }
+            const excluir=document.createElement("button"); excluir.className="excluir-material"; excluir.textContent="🗑 EXCLUIR";
+            excluir.onclick=async function(){
+                if(!confirm("Excluir " + mat.nome + " da galeria?")) return;
+                const r=await fetch("/material-base/"+encodeURIComponent(mat.file_id),{method:"DELETE"});
+                const d=await r.json(); if(!r.ok){alert(d.erro||"Falha ao excluir.");return;}
+                await consultarMaterialBase(); await carregarMateriais();
+            };
+            acoes.appendChild(excluir); card.appendChild(nome); card.appendChild(status); card.appendChild(acoes); materiaisGrid.appendChild(card);
+        });
+    } catch(erro) { materiaisGrid.innerHTML='<div class="galeria-vazia">❌ '+erro.message+'</div>'; }
+}
+
+desativarMaterial.onclick = async function() {
+    const r=await fetch("/material-base/desativar",{method:"POST"});
+    const d=await r.json();
+    if(!r.ok){alert(d.erro||"Falha ao desativar.");return;}
+    mensagemMaterialBase.textContent="⚪ Nenhum material-base ativo.";
+    await carregarMateriais();
 };
 
 async function consultarMaterialBase() {
     try {
-        const resposta = await fetch("/material-base/status?t=" + Date.now(), {cache: "no-store"});
-        const dados = await resposta.json();
-        if (dados.ativo) {
-            mensagemMaterialBase.textContent = "✅ Material-base ativo: " + (dados.nome || "arquivo configurado") + ".";
-        }
-    } catch (erro) {}
+        const resposta=await fetch("/material-base/status?t="+Date.now(),{cache:"no-store"});
+        const dados=await resposta.json();
+        mensagemMaterialBase.textContent=dados.ativo ? "✅ Material ativo: "+(dados.nome||"arquivo configurado") : "⚪ Nenhum material-base ativo.";
+    } catch(erro) {}
 }
 consultarMaterialBase();
 
@@ -1697,67 +1784,125 @@ def enviar_audio():
 
 
 # =========================================================
-# MATERIAL-BASE DA IA
-# Upload opcional usado SOMENTE ao resolver exercícios do submenu.
+# GALERIA DE MATERIAIS DA IA
+# Os arquivos ficam armazenados na API de arquivos da OpenAI.
+# O prefixo identifica somente os materiais desta galeria.
 # =========================================================
+
+def _nome_material_exibicao(nome_api):
+    nome_api = str(nome_api or "")
+    if nome_api.startswith(MATERIAL_BASE_PREFIXO):
+        return nome_api[len(MATERIAL_BASE_PREFIXO):]
+    return nome_api
+
+def _listar_materiais_openai():
+    if openai_client is None:
+        return []
+    itens=[]
+    pagina=openai_client.files.list(limit=100)
+    while True:
+        for arq in pagina.data:
+            nome_api=str(getattr(arq,"filename","") or "")
+            if nome_api.startswith(MATERIAL_BASE_PREFIXO):
+                itens.append({
+                    "file_id": arq.id,
+                    "nome": _nome_material_exibicao(nome_api),
+                    "ativo": arq.id == material_base_file_id,
+                    "criado": getattr(arq,"created_at",None)
+                })
+        if not getattr(pagina,"has_more",False):
+            break
+        ultimo=pagina.data[-1].id if pagina.data else None
+        if not ultimo: break
+        pagina=openai_client.files.list(limit=100, after=ultimo)
+    itens.sort(key=lambda x: x.get("criado") or 0, reverse=True)
+    return itens
 
 @app.route("/material-base", methods=["POST"])
 def enviar_material_base():
     global material_base_file_id, material_base_nome
-
     if openai_client is None:
-        return jsonify({"erro": "OPENAI_API_KEY ausente."}), 500
-
+        return jsonify({"erro":"OPENAI_API_KEY ausente."}),500
     if "arquivo" not in request.files:
-        return jsonify({"erro": "Nenhum arquivo recebido."}), 400
-
-    recebido = request.files["arquivo"]
-    nome = secure_filename(recebido.filename or "")
+        return jsonify({"erro":"Nenhum arquivo recebido."}),400
+    recebido=request.files["arquivo"]
+    nome=secure_filename(recebido.filename or "")
     if not nome:
-        return jsonify({"erro": "Nome de arquivo inválido."}), 400
-
-    extensao = os.path.splitext(nome)[1].lower()
-    if extensao not in {".pdf", ".txt", ".md", ".doc", ".docx"}:
-        return jsonify({"erro": "Use PDF, TXT, MD, DOC ou DOCX."}), 400
-
-    caminho = os.path.join(AUDIO_DIR, "material_base_" + uuid.uuid4().hex[:10] + extensao)
+        return jsonify({"erro":"Nome de arquivo inválido."}),400
+    extensao=os.path.splitext(nome)[1].lower()
+    if extensao not in {".pdf",".txt",".md",".doc",".docx"}:
+        return jsonify({"erro":"Use PDF, TXT, MD, DOC ou DOCX."}),400
+    # O nome temporário vira o filename remoto e permite reconstruir a galeria após restart do Render.
+    caminho=os.path.join(AUDIO_DIR, MATERIAL_BASE_PREFIXO + nome)
     recebido.save(caminho)
-
     try:
-        with open(caminho, "rb") as arquivo:
-            enviado = openai_client.files.create(file=arquivo, purpose="user_data")
-
-        antigo = material_base_file_id
-        material_base_file_id = enviado.id
-        material_base_nome = nome
-
-        # O arquivo anterior enviado por esta interface não é mais necessário.
-        # Se o ID veio de MATERIAL_BASE_FILE_ID, não tentamos apagá-lo.
-        if antigo and not os.environ.get("MATERIAL_BASE_FILE_ID", "").strip():
-            try:
-                openai_client.files.delete(antigo)
-            except Exception:
-                pass
-
-        adicionar_log_esp32("OK", f"Material-base da IA atualizado: {nome}.")
-        return jsonify({"ok": True, "nome": nome, "file_id": material_base_file_id})
-
+        with open(caminho,"rb") as arquivo:
+            enviado=openai_client.files.create(file=arquivo,purpose="user_data")
+        material_base_file_id=enviado.id
+        material_base_nome=nome
+        adicionar_log_esp32("OK",f"Material adicionado e ativado: {nome}.")
+        return jsonify({"ok":True,"nome":nome,"file_id":enviado.id})
     except Exception as erro:
-        adicionar_log_esp32("ERRO", f"Falha ao enviar material-base para a IA: {erro}")
-        return jsonify({"erro": "Falha ao enviar o material-base para a IA."}), 500
+        adicionar_log_esp32("ERRO",f"Falha ao enviar material-base: {erro}")
+        return jsonify({"erro":"Falha ao enviar o material-base para a IA."}),500
     finally:
-        try:
-            os.remove(caminho)
-        except Exception:
-            pass
+        try: os.remove(caminho)
+        except Exception: pass
 
+@app.route("/api/materiais", methods=["GET"])
+def api_materiais():
+    try:
+        return jsonify({"ok":True,"materiais":_listar_materiais_openai()})
+    except Exception as erro:
+        return jsonify({"erro":f"Falha ao listar materiais: {erro}"}),500
+
+@app.route("/material-base/ativar", methods=["POST"])
+def ativar_material_base():
+    global material_base_file_id, material_base_nome
+    dados=request.get_json(silent=True) or {}
+    file_id=str(dados.get("file_id","")).strip()
+    if not file_id:
+        return jsonify({"erro":"Material inválido."}),400
+    try:
+        materiais=_listar_materiais_openai()
+        escolhido=next((m for m in materiais if m["file_id"]==file_id),None)
+        if not escolhido:
+            return jsonify({"erro":"Material não encontrado na galeria."}),404
+        material_base_file_id=file_id
+        material_base_nome=escolhido["nome"]
+        adicionar_log_esp32("OK",f"Material ativo: {material_base_nome}.")
+        return jsonify({"ok":True,"nome":material_base_nome,"file_id":file_id})
+    except Exception as erro:
+        return jsonify({"erro":f"Falha ao ativar material: {erro}"}),500
+
+@app.route("/material-base/desativar", methods=["POST"])
+def desativar_material_base():
+    global material_base_file_id, material_base_nome
+    material_base_file_id=None
+    material_base_nome=None
+    adicionar_log_esp32("INFO","Material-base desativado; IA resolverá sem material de referência.")
+    return jsonify({"ok":True})
+
+@app.route("/material-base/<file_id>", methods=["DELETE"])
+def excluir_material_base(file_id):
+    global material_base_file_id, material_base_nome
+    try:
+        materiais=_listar_materiais_openai()
+        escolhido=next((m for m in materiais if m["file_id"]==file_id),None)
+        if not escolhido:
+            return jsonify({"erro":"Material não encontrado na galeria."}),404
+        openai_client.files.delete(file_id)
+        if material_base_file_id==file_id:
+            material_base_file_id=None
+            material_base_nome=None
+        adicionar_log_esp32("INFO",f"Material excluído: {escolhido['nome']}.")
+        return jsonify({"ok":True,"nome":escolhido["nome"]})
+    except Exception as erro:
+        return jsonify({"erro":f"Falha ao excluir material: {erro}"}),500
 
 @app.route("/material-base/status", methods=["GET"])
 def status_material_base():
-    return jsonify({
-        "ativo": bool(material_base_file_id),
-        "nome": material_base_nome
-    })
+    return jsonify({"ativo":bool(material_base_file_id),"nome":material_base_nome,"file_id":material_base_file_id})
 
 
 # =========================================================
