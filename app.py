@@ -55,6 +55,11 @@ foto_sessao_atual = None
 nome_foto_sessao_atual = None
 quantidade_exercicios_sessao = 0
 
+# Material-base opcional para a resolução dos exercícios do submenu.
+# Também pode ser definido no Render por MATERIAL_BASE_FILE_ID.
+material_base_file_id = os.environ.get("MATERIAL_BASE_FILE_ID", "").strip() or None
+material_base_nome = "material configurado no Render" if material_base_file_id else None
+
 
 logs_esp32 = []
 MAX_LOGS_ESP32 = 20
@@ -346,6 +351,11 @@ audio {
 
 #uploadEsp {
     background: #238636;
+    color: white;
+}
+
+#uploadMaterialBase {
+    background: #1f6feb;
     color: white;
 }
 
@@ -690,6 +700,14 @@ audio {
             Arquivos serão salvos em /downloads no cartão SD.
         </div>
 
+        <input id="materialBaseInput" type="file" accept=".pdf,.txt,.md,.doc,.docx" style="display:none;">
+        <button id="uploadMaterialBase">
+            📚 MATERIAL-BASE DA IA
+        </button>
+        <div id="mensagemMaterialBase" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;color:#8b949e;font-size:13px;line-height:1.4;">
+            Nenhum material-base enviado nesta execução.
+        </div>
+
         <div id="mensagemCamera">
             Câmera pronta para comando.
         </div>
@@ -882,6 +900,9 @@ const botaoResetLimpo = document.getElementById("resetLimpo");
 const botaoUploadEsp = document.getElementById("uploadEsp");
 const arquivoEspInput = document.getElementById("arquivoEsp");
 const mensagemUploadEsp = document.getElementById("mensagemUploadEsp");
+const botaoUploadMaterialBase = document.getElementById("uploadMaterialBase");
+const materialBaseInput = document.getElementById("materialBaseInput");
+const mensagemMaterialBase = document.getElementById("mensagemMaterialBase");
 const mensagemCamera = document.getElementById("mensagemCamera");
 const galeriaModal = document.getElementById("galeriaModal");
 const galeriaGrid = document.getElementById("galeriaGrid");
@@ -1226,6 +1247,52 @@ arquivoEspInput.onchange = async function() {
         botaoUploadEsp.disabled = false;
     }
 };
+
+// ======================================================
+// MATERIAL-BASE DA IA
+// ======================================================
+
+botaoUploadMaterialBase.onclick = function() {
+    materialBaseInput.value = "";
+    materialBaseInput.click();
+};
+
+materialBaseInput.onchange = async function() {
+    const arquivo = materialBaseInput.files && materialBaseInput.files[0];
+    if (!arquivo) return;
+
+    botaoUploadMaterialBase.disabled = true;
+    mensagemMaterialBase.textContent = "📤 Enviando material-base para a IA...";
+
+    const formulario = new FormData();
+    formulario.append("arquivo", arquivo, arquivo.name);
+
+    try {
+        const resposta = await fetch("/material-base", {
+            method: "POST",
+            body: formulario
+        });
+        const dados = await resposta.json();
+        if (!resposta.ok) throw new Error(dados.erro || "Falha ao enviar material-base.");
+        mensagemMaterialBase.textContent =
+            "✅ Material-base ativo: " + dados.nome + ". Será usado ao resolver exercícios do submenu.";
+    } catch (erro) {
+        mensagemMaterialBase.textContent = "❌ " + erro.message;
+    } finally {
+        botaoUploadMaterialBase.disabled = false;
+    }
+};
+
+async function consultarMaterialBase() {
+    try {
+        const resposta = await fetch("/material-base/status?t=" + Date.now(), {cache: "no-store"});
+        const dados = await resposta.json();
+        if (dados.ativo) {
+            mensagemMaterialBase.textContent = "✅ Material-base ativo: " + (dados.nome || "arquivo configurado") + ".";
+        }
+    } catch (erro) {}
+}
+consultarMaterialBase();
 
 // ======================================================
 // CÂMERA
@@ -1627,6 +1694,70 @@ def enviar_audio():
         "tamanho": tamanho_wav
     })
 
+
+
+# =========================================================
+# MATERIAL-BASE DA IA
+# Upload opcional usado SOMENTE ao resolver exercícios do submenu.
+# =========================================================
+
+@app.route("/material-base", methods=["POST"])
+def enviar_material_base():
+    global material_base_file_id, material_base_nome
+
+    if openai_client is None:
+        return jsonify({"erro": "OPENAI_API_KEY ausente."}), 500
+
+    if "arquivo" not in request.files:
+        return jsonify({"erro": "Nenhum arquivo recebido."}), 400
+
+    recebido = request.files["arquivo"]
+    nome = secure_filename(recebido.filename or "")
+    if not nome:
+        return jsonify({"erro": "Nome de arquivo inválido."}), 400
+
+    extensao = os.path.splitext(nome)[1].lower()
+    if extensao not in {".pdf", ".txt", ".md", ".doc", ".docx"}:
+        return jsonify({"erro": "Use PDF, TXT, MD, DOC ou DOCX."}), 400
+
+    caminho = os.path.join(AUDIO_DIR, "material_base_" + uuid.uuid4().hex[:10] + extensao)
+    recebido.save(caminho)
+
+    try:
+        with open(caminho, "rb") as arquivo:
+            enviado = openai_client.files.create(file=arquivo, purpose="user_data")
+
+        antigo = material_base_file_id
+        material_base_file_id = enviado.id
+        material_base_nome = nome
+
+        # O arquivo anterior enviado por esta interface não é mais necessário.
+        # Se o ID veio de MATERIAL_BASE_FILE_ID, não tentamos apagá-lo.
+        if antigo and not os.environ.get("MATERIAL_BASE_FILE_ID", "").strip():
+            try:
+                openai_client.files.delete(antigo)
+            except Exception:
+                pass
+
+        adicionar_log_esp32("OK", f"Material-base da IA atualizado: {nome}.")
+        return jsonify({"ok": True, "nome": nome, "file_id": material_base_file_id})
+
+    except Exception as erro:
+        adicionar_log_esp32("ERRO", f"Falha ao enviar material-base para a IA: {erro}")
+        return jsonify({"erro": "Falha ao enviar o material-base para a IA."}), 500
+    finally:
+        try:
+            os.remove(caminho)
+        except Exception:
+            pass
+
+
+@app.route("/material-base/status", methods=["GET"])
+def status_material_base():
+    return jsonify({
+        "ativo": bool(material_base_file_id),
+        "nome": material_base_nome
+    })
 
 
 # =========================================================
@@ -2608,11 +2739,10 @@ def websocket_esp32(ws):
                         with open(caminho_imagem, "rb") as arquivo:
                             imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
 
-                        resposta = openai_client.responses.create(
-                            model=OPENAI_MODEL,
-                            input=[{
-                                "role": "user",
-                                "content": [
+                        # Captura o material ativo no momento da resolução.
+                        arquivo_base_id = material_base_file_id
+
+                        conteudo_ia = [
                                     {
                                         "type": "input_text",
                                         "text": (
@@ -2683,12 +2813,35 @@ def websocket_esp32(ws):
                                             "Na última linha diga 'Resposta final' e dite exatamente o resultado, com unidade quando houver. "
                                             "Se o exercício não estiver legível, diga somente que não conseguiu lê-lo com segurança e peça outra foto."
                                         )
-                                    },
-                                    {
-                                        "type": "input_image",
-                                        "image_url": "data:image/jpeg;base64," + imagem_b64
                                     }
-                                ]
+                        ]
+
+                        if arquivo_base_id:
+                            conteudo_ia.append({
+                                "type": "input_file",
+                                "file_id": arquivo_base_id
+                            })
+
+                        conteudo_ia.append({
+                            "type": "input_image",
+                            "image_url": "data:image/jpeg;base64," + imagem_b64
+                        })
+
+                        # A foto continua sendo a fonte do enunciado. O material-base
+                        # serve para método, notação, exemplos e padrão de resolução.
+                        if arquivo_base_id:
+                            conteudo_ia[0]["text"] += (
+                                " MATERIAL-BASE: há um arquivo de referência anexado. "
+                                "Use-o prioritariamente como base para o método, a notação, a organização e o padrão da resolução. "
+                                "Procure nele exemplos ou procedimentos compatíveis com este exercício. "
+                                "Não invente conteúdo que não esteja legível na foto e não troque o enunciado pelo material-base. "
+                            )
+
+                        resposta = openai_client.responses.create(
+                            model=OPENAI_MODEL,
+                            input=[{
+                                "role": "user",
+                                "content": conteudo_ia
                             }]
                         )
 
