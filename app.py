@@ -2559,13 +2559,14 @@ def quantidade_por_extenso(numero):
     return nomes.get(numero, str(numero))
 
 
-def texto_menu_exercicios(quantidade):
+def texto_menu_exercicios(exercicios):
     partes = []
-    for numero in range(1, quantidade + 1):
-        vezes = quantidade_por_extenso(numero)
-        termo = "vez" if numero == 1 else "vezes"
+    for posicao, exercicio in enumerate(exercicios, start=1):
+        numero_real = str(exercicio.get("numero", posicao)).strip()
+        vezes = quantidade_por_extenso(posicao)
+        termo = "vez" if posicao == 1 else "vezes"
         partes.append(
-            f"Para ouvir a resolução do exercício {numero}, aperte {vezes} {termo} o botão."
+            f"Para ouvir a resolução do exercício {numero_real}, aperte {vezes} {termo} o botão."
         )
     partes.append(
         "Depois deste áudio, você terá quinze segundos para escolher. "
@@ -2743,11 +2744,13 @@ def analisar_foto_nova_com_ia(caminho, nome):
                         "type": "input_text",
                         "text": (
                             "Leia a imagem e identifique somente os exercícios ou questões legíveis. "
+                            "Preserve obrigatoriamente o NÚMERO REAL impresso ao lado de cada exercício na foto. "
+                            "NÃO renumere os exercícios começando em 1. "
+                            "Exemplo: se a foto mostrar somente os exercícios 3 e 4, retorne EXERCICIO 3 e EXERCICIO 4. "
                             "Responda EXATAMENTE neste formato, sem introdução e sem markdown:\\n"
-                            "EXERCICIO 1: <enunciado completo do exercício 1>\\n"
-                            "EXERCICIO 2: <enunciado completo do exercício 2>\\n"
-                            "e assim sucessivamente. "
-                            "Não invente exercício ilegível. Se houver apenas um, retorne somente EXERCICIO 1."
+                            "EXERCICIO <numero real>: <enunciado completo>\\n"
+                            "EXERCICIO <numero real>: <enunciado completo>\\n"
+                            "Não invente exercício ilegível."
                         )
                     },
                     {
@@ -2764,11 +2767,15 @@ def analisar_foto_nova_com_ia(caminho, nome):
 
         import re
         encontrados = re.findall(
-            r"EXERCICIO\s+\d+\s*:\s*(.*?)(?=\nEXERCICIO\s+\d+\s*:|\Z)",
+            r"EXERCICIO\s+([A-Za-z0-9._-]+)\s*:\s*(.*?)(?=\nEXERCICIO\s+[A-Za-z0-9._-]+\s*:|\Z)",
             texto,
             flags=re.IGNORECASE | re.DOTALL
         )
-        exercicios = [item.strip() for item in encontrados if item.strip()]
+        exercicios = [
+            {"numero": numero.strip(), "enunciado": enunciado.strip()}
+            for numero, enunciado in encontrados
+            if enunciado.strip()
+        ]
 
         if not exercicios:
             with lock:
@@ -2814,10 +2821,17 @@ def analisar_foto_nova_com_ia(caminho, nome):
                     f"IA leu a foto, mas não foi possível enviar IA_LEU_FOTO à ESP32: {erro}"
                 )
 
-        texto_menu = (
-            f"Identifiquei {quantidade} exercício" + ("" if quantidade == 1 else "s") + ". "
-            + texto_menu_exercicios(quantidade)
-        )
+        numeros_identificados = [str(item.get("numero", "")).strip() for item in exercicios]
+        if quantidade == 1:
+            identificacao = f"Identifiquei 1 exercício: exercício {numeros_identificados[0]}. "
+        else:
+            identificacao = (
+                f"Identifiquei {quantidade} exercícios: "
+                + ", ".join(f"exercício {numero}" for numero in numeros_identificados[:-1])
+                + f" e exercício {numeros_identificados[-1]}. "
+            )
+
+        texto_menu = identificacao + texto_menu_exercicios(exercicios)
 
         criar_e_enviar_audio_ia(texto_menu, menu=True)
 
@@ -3148,17 +3162,23 @@ def websocket_esp32(ws):
                     )
                     continue
 
+                with lock:
+                    opcoes_exercicios = [dict(item) for item in exercicios_atuais]
+                    exercicio_escolhido = dict(opcoes_exercicios[quantidade - 1])
+
+                numero_real = str(exercicio_escolhido.get("numero", quantidade)).strip()
+
                 adicionar_log_esp32(
                     "OK",
-                    f"Exercício {quantidade} selecionado; IA relendo diretamente a foto original."
+                    f"Opção {quantidade} selecionada; corresponde ao exercício {numero_real}. IA relendo diretamente a foto original."
                 )
                 atualizar_status_ia(
                     "RESOLVENDO",
-                    f"🟣 IA RESOLVENDO EXERCÍCIO {quantidade}...",
+                    f"🟣 IA RESOLVENDO EXERCÍCIO {numero_real}...",
                     "Estou relendo a foto original e preparando a resolução guiada."
                 )
 
-                def resolver_exercicio_guiado_da_foto(numero, caminho_imagem, nome_imagem, total_exercicios):
+                def resolver_exercicio_guiado_da_foto(numero, caminho_imagem, nome_imagem, opcoes_exercicios):
                     try:
                         with open(caminho_imagem, "rb") as arquivo:
                             imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
@@ -3276,7 +3296,7 @@ def websocket_esp32(ws):
                         texto_final = (
                             f"Exercício {numero}. {resolucao} "
                             "Agora você pode escolher novamente. "
-                            + texto_menu_exercicios(total_exercicios)
+                            + texto_menu_exercicios(opcoes_exercicios)
                         )
                         criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=0.6)
 
@@ -3289,7 +3309,7 @@ def websocket_esp32(ws):
 
                 threading.Thread(
                     target=resolver_exercicio_guiado_da_foto,
-                    args=(quantidade, caminho_foto, nome_foto, total),
+                    args=(numero_real, caminho_foto, nome_foto, opcoes_exercicios),
                     daemon=True
                 ).start()
 
