@@ -34,7 +34,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-luna").strip()
 OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts").strip()
 OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "alloy").strip()
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+openai_client = OpenAI(api_key=OPENAI_API_KEY, timeout=90.0, max_retries=1) if OPENAI_API_KEY else None
 
 
 # RLock evita deadlock quando uma rotina com lock chama outra que tambem usa lock.
@@ -171,7 +171,9 @@ def esp_esta_online():
 # PROTECAO: OPERACOES ABANDONADAS PELA ESP32
 # Nao cancela processamento de IA; apenas espera por resposta da placa.
 # =========================================================
-ESTADOS_ESP_COM_TIMEOUT = {"REENVIANDO_AUDIO", "AGUARDANDO_AUDIO", "AGUARDANDO_REPRODUCAO"}
+ESTADOS_ESP_COM_TIMEOUT = {"REENVIANDO_AUDIO", "AGUARDANDO_AUDIO", "AGUARDANDO_REPRODUCAO", "AUDIO_ENVIADO", "AGUARDANDO_ESCOLHA", "BAIXANDO_AUDIO"}
+ESTADOS_ERRO_COM_TIMEOUT = {"ERRO", "ERRO_AUDIO"}
+TIMEOUT_ESTADO_ERRO = 30
 TIMEOUT_ESTADO_ESP = 180  # segundos
 
 def vigiar_estado_esp():
@@ -181,9 +183,20 @@ def vigiar_estado_esp():
             with lock:
                 estado = str(status_ia.get("estado", "")).upper().strip()
                 inicio = float(status_ia.get("inicio", time.time()))
-            if estado in ESTADOS_ESP_COM_TIMEOUT and time.time() - inicio > TIMEOUT_ESTADO_ESP:
-                adicionar_log_esp32("AVISO", f"Timeout de {TIMEOUT_ESTADO_ESP}s no estado {estado}; liberando sistema.")
-                atualizar_status_ia("AGUARDANDO", "⚪ IA AGUARDANDO", "Operacao anterior sem confirmacao da ESP32; sistema liberado.")
+            limite = (TIMEOUT_ESTADO_ERRO if estado in ESTADOS_ERRO_COM_TIMEOUT
+                      else TIMEOUT_ESTADO_ESP if estado in ESTADOS_ESP_COM_TIMEOUT else None)
+            if limite is not None and time.time() - inicio > limite:
+                # Revalida o estado sob o lock para nao encerrar uma operacao nova.
+                with lock:
+                    ainda_antigo = (status_ia.get("estado") == estado and
+                                    float(status_ia.get("inicio", 0)) == inicio)
+                    if ainda_antigo:
+                        # Evita aceitar cliques de um menu expirado.
+                        global aguardando_resposta_menu
+                        aguardando_resposta_menu = False
+                if ainda_antigo:
+                    adicionar_log_esp32("AVISO", f"Estado {estado} expirou apos {limite}s; liberando sistema.")
+                    atualizar_status_ia("AGUARDANDO", "⚪ IA AGUARDANDO", "Operacao sem confirmacao ou erro anterior; sistema liberado.")
         except Exception as erro:
             print("ERRO NO VIGILANTE DE ESTADO:", repr(erro), flush=True)
 
@@ -2311,18 +2324,32 @@ def baixar_audio(audio_id):
             "erro": "Arquivo não existe."
         }), 404
 
-    print(
-        ">>> ESP32 INICIOU DOWNLOAD DO WAV:",
-        audio_id,
-        flush=True
-    )
+    # Flask/Werkzeug suporta Range (206) e Content-Range com conditional=True.
+    # O ESP32 solicita blocos de tamanho limitado e pode retomar apos queda.
+    tamanho = os.path.getsize(caminho)
+    faixa = request.headers.get("Range", "")
+    print(f">>> DOWNLOAD WAV {audio_id}: {faixa or 'completo'} / {tamanho} bytes", flush=True)
 
-    return send_file(
+    # O watchdog conta inatividade entre blocos, nao duracao total do download.
+    with lock:
+        estado_atual = str(status_ia.get("estado", "")).upper()
+        if estado_atual in ESTADOS_ESP_COM_TIMEOUT:
+            status_ia["estado"] = "BAIXANDO_AUDIO"
+            status_ia["titulo"] = "⬇️ BAIXANDO ÁUDIO"
+            status_ia["detalhe"] = f"ESP32 recebendo WAV {audio_id} em blocos."
+            status_ia["inicio"] = time.time()
+
+    resposta = send_file(
         caminho,
         mimetype="audio/wav",
         as_attachment=False,
-        download_name="audio.wav"
+        download_name="audio.wav",
+        conditional=True,
+        etag=True,
     )
+    resposta.headers["Accept-Ranges"] = "bytes"
+    resposta.headers["Cache-Control"] = "no-store"
+    return resposta
 
 
 # =========================================================
@@ -3081,6 +3108,8 @@ def websocket_esp32(ws):
                     adicionar_log_esp32("OK", f"ESP32 confirmou o áudio WAV {audio_id}.")
                     with lock:
                         esperando_menu_agora = aguardando_resposta_menu
+                    if not esperando_menu_agora:
+                        atualizar_status_ia("AGUARDANDO_REPRODUCAO", "🔊 AGUARDANDO REPRODUÇÃO", "WAV recebido; aguardando Bluetooth e reprodução.")
                     if esperando_menu_agora:
                         atualizar_status_ia(
                             "AGUARDANDO_ESCOLHA",
@@ -3320,8 +3349,9 @@ def websocket_esp32(ws):
                             conteudo_ia[0]["text"] = (
                                 f"Observe novamente esta imagem original e responda SOMENTE o exercício {numero}. "
                                 "Leia tudo DIRETAMENTE DA FOTO e confira cuidadosamente antes de responder. "
-                                "É uma questão objetiva. Identifique a alternativa correta e explique de forma clara e direta por que ela está correta. "
-                                "Quando for útil, explique brevemente por que as demais estão erradas. "
+                                "É uma questão objetiva. Identifique a alternativa correta e copie SOMENTE o texto da alternativa correta, fiel à foto. "
+                                "Responda em uma única linha no formato exato: LETRA: B | TEXTO: texto integral da alternativa B. "
+                                "Não dê explicações, justificativas, nem mencione outras alternativas. "
                                 "Não repita o enunciado, pois ele será lido separadamente antes da resposta. "
                                 "Não use guia de escrita linha por linha, markdown, tabelas ou comandos LaTeX. "
                                 "Não invente informação ilegível e não responda outros exercícios."
@@ -3360,25 +3390,33 @@ def websocket_esp32(ws):
                         if not resolucao:
                             resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
 
-                        # O áudio sempre lê primeiro o enunciado completo da questão selecionada.
-                        if enunciado_exercicio:
-                            abertura_audio = f"Exercício {numero}. Enunciado: {enunciado_exercicio}. "
+                        if eh_objetiva:
+                            import re
+                            # Extrai somente a letra e o texto da alternativa escolhida.
+                            padrao = re.fullmatch(
+                                r"\s*LETRA\s*:\s*([A-E])\s*\|\s*TEXTO\s*:\s*(.+?)\s*",
+                                resolucao, flags=re.IGNORECASE | re.DOTALL
+                            )
+                            if not padrao:
+                                adicionar_log_esp32("ERRO", f"Resposta objetiva {numero} fora do formato; audio nao enviado para evitar resposta incorreta.")
+                                atualizar_status_ia("ERRO", "🔴 RESPOSTA NÃO VALIDADA", "Não consegui confirmar a letra e o texto da alternativa.")
+                                return
+                            letra = padrao.group(1).upper()
+                            texto_alternativa = padrao.group(2).strip()
+                            # O campo enunciado extraido pode conter alternativas; retira-as da leitura.
+                            pergunta = re.split(r"(?im)(?:^|\n)\s*(?:alternativas\s*:\s*)?(?:[A-E]\s*[)\.\-:]\s+)", enunciado_exercicio, maxsplit=1)[0].strip()
+                            texto_final = (f"Exercício {numero}. {pergunta}. " if pergunta else f"Exercício {numero}. ")
+                            texto_final += f"Resposta correta é a letra {letra}. {texto_alternativa}."
                         else:
-                            abertura_audio = f"Exercício {numero}. "
-
-                        abertura_audio += "Resposta. " if eh_objetiva else "Resolução. "
-
-                        texto_final = (
-                            abertura_audio
-                            + resolucao + " "
-                            "Agora você pode escolher novamente. "
-                            + texto_menu_exercicios(opcoes_exercicios)
-                        )
-                        criar_e_enviar_audio_ia(
-                            texto_final,
-                            menu=True,
-                            velocidade=velocidade_audio
-                        )
+                            abertura_audio = (f"Exercício {numero}. Enunciado: {enunciado_exercicio}. "
+                                              if enunciado_exercicio else f"Exercício {numero}. ")
+                            texto_final = (abertura_audio + "Resolução. " + resolucao + " "
+                                           "Agora você pode escolher novamente. "
+                                           + texto_menu_exercicios(opcoes_exercicios))
+                        # menu=True preserva a selecao por cliques apos o audio,
+                        # mesmo quando a questao objetiva nao repete as instrucoes faladas.
+                        if not criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=velocidade_audio):
+                            atualizar_status_ia("ERRO", "🔴 FALHA NO ÁUDIO", "Não foi possível enviar a resposta à ESP32.")
 
                     except Exception as erro:
                         print(">>> ERRO AO RESOLVER PELA FOTO:", repr(erro), flush=True)
@@ -3386,6 +3424,7 @@ def websocket_esp32(ws):
                             "ERRO",
                             f"Falha ao resolver exercício {numero} pela foto {nome_imagem}: {erro}"
                         )
+                        atualizar_status_ia("ERRO", "🔴 ERRO NA RESOLUÇÃO", "Falha ao resolver exercício; sistema será liberado automaticamente.")
 
                 threading.Thread(
                     target=resolver_exercicio_guiado_da_foto,
@@ -3413,6 +3452,11 @@ def websocket_esp32(ws):
             flush=True
         )
         adicionar_log_esp32("AVISO", "WebSocket da ESP32 foi desconectado.")
+        with lock:
+            sem_socket = esp_ws is None
+            estado_desconectado = str(status_ia.get("estado", "")).upper()
+        if sem_socket and estado_desconectado in ESTADOS_ESP_COM_TIMEOUT:
+            atualizar_status_ia("ERRO_AUDIO", "🔴 ESP32 DESCONECTADA", "Conexão perdida durante a entrega do áudio; aguardando recuperação.")
 
 
 # =========================================================
