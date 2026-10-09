@@ -37,7 +37,8 @@ OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "alloy").strip()
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
-lock = threading.Lock()
+# RLock evita deadlock quando uma rotina com lock chama outra que tambem usa lock.
+lock = threading.RLock()
 
 ultimo_sinal_esp = 0.0
 esp_ws = None
@@ -165,6 +166,28 @@ def esp_esta_online():
 
     return segundos < 30
 
+
+# =========================================================
+# PROTECAO: OPERACOES ABANDONADAS PELA ESP32
+# Nao cancela processamento de IA; apenas espera por resposta da placa.
+# =========================================================
+ESTADOS_ESP_COM_TIMEOUT = {"REENVIANDO_AUDIO", "AGUARDANDO_AUDIO", "AGUARDANDO_REPRODUCAO"}
+TIMEOUT_ESTADO_ESP = 180  # segundos
+
+def vigiar_estado_esp():
+    while True:
+        time.sleep(10)
+        try:
+            with lock:
+                estado = str(status_ia.get("estado", "")).upper().strip()
+                inicio = float(status_ia.get("inicio", time.time()))
+            if estado in ESTADOS_ESP_COM_TIMEOUT and time.time() - inicio > TIMEOUT_ESTADO_ESP:
+                adicionar_log_esp32("AVISO", f"Timeout de {TIMEOUT_ESTADO_ESP}s no estado {estado}; liberando sistema.")
+                atualizar_status_ia("AGUARDANDO", "⚪ IA AGUARDANDO", "Operacao anterior sem confirmacao da ESP32; sistema liberado.")
+        except Exception as erro:
+            print("ERRO NO VIGILANTE DE ESTADO:", repr(erro), flush=True)
+
+threading.Thread(target=vigiar_estado_esp, daemon=True).start()
 
 # =========================================================
 # PÁGINA PRINCIPAL
@@ -2317,22 +2340,18 @@ def audio_download_erro(audio_id):
         socket_atual = esp_ws
 
         if dados is None:
-            adicionar_log_esp32(
-                "ERRO",
-                f"ESP32 avisou falha do áudio {audio_id}, mas esse áudio não existe mais no servidor."
-            )
-            atualizar_status_ia(
-                "ERRO_AUDIO",
-                "🔴 ERRO NO ÁUDIO",
-                "A ESP32 informou falha, mas o arquivo do áudio não foi encontrado no servidor."
-            )
-            return jsonify({"ok": False, "erro": "Áudio não encontrado."}), 404
+            # ID antigo do SD: nao prender o status global nem tentar reenviar.
+            pass
+        else:
+            caminho = dados.get("arquivo")
+            eh_menu = bool(dados.get("menu", False))
+            tentativas = int(dados.get("tentativas_recuperacao", 0)) + 1
+            dados["tentativas_recuperacao"] = tentativas
+            dados["recebido"] = False
 
-        caminho = dados.get("arquivo")
-        eh_menu = bool(dados.get("menu", False))
-        tentativas = int(dados.get("tentativas_recuperacao", 0)) + 1
-        dados["tentativas_recuperacao"] = tentativas
-        dados["recebido"] = False
+    if dados is None:
+        adicionar_log_esp32("AVISO", f"Recuperacao ignorada: audio antigo/inexistente {audio_id}.")
+        return jsonify({"ok": False, "erro": "Audio antigo nao encontrado; descarte a pendencia no SD."}), 404
 
     if not caminho or not os.path.exists(caminho):
         adicionar_log_esp32(
