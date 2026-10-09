@@ -2568,6 +2568,10 @@ def texto_menu_exercicios(exercicios):
         partes.append(
             f"Para ouvir a resolução do exercício {numero_real}, aperte {vezes} {termo} o botão."
         )
+    posicao_resumo = len(exercicios) + 1
+    partes.append(
+        f"Para ouvir apenas o gabarito rápido de todos os exercícios, aperte {quantidade_por_extenso(posicao_resumo)} vezes o botão."
+    )
     partes.append(
         "Depois deste áudio, você terá quinze segundos para escolher. "
         "Se não apertar o botão, a sessão será encerrada."
@@ -3153,6 +3157,55 @@ def websocket_esp32(ws):
                     adicionar_log_esp32("ERRO", "Não existe foto original ativa para esta sessão.")
                     continue
 
+                if quantidade == total + 1:
+                    with lock:
+                        opcoes_resumo = [dict(item) for item in exercicios_atuais]
+                    atualizar_status_ia(
+                        "RESOLVENDO", "🟣 IA PREPARANDO GABARITO RÁPIDO...",
+                        "Conferindo as alternativas de todos os exercícios legíveis."
+                    )
+                    adicionar_log_esp32("INFO", "Gabarito rápido solicitado para todos os exercícios da foto.")
+
+                    def gerar_gabarito_rapido(caminho_imagem, opcoes):
+                        try:
+                            with open(caminho_imagem, "rb") as arquivo:
+                                imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
+                            numeros = [str(item.get("numero", "")).strip() for item in opcoes]
+                            resposta = openai_client.responses.create(
+                                model=OPENAI_MODEL,
+                                input=[{"role": "user", "content": [
+                                    {"type": "input_text", "text": (
+                                        "Analise diretamente a FOTO ORIGINAL e responda, na ordem, apenas os "
+                                        "exercícios identificados: " + ", ".join(numeros) + ". "
+                                        "Para cada questão objetiva legível, determine a alternativa correta "
+                                        "e devolva EXATAMENTE uma frase no formato 'Exercício 38, letra A.' "
+                                        "(com número e letra reais). Não explique, não leia enunciados, "
+                                        "não leia o texto das alternativas e não acrescente introdução ou conclusão. "
+                                        "Se a questão for discursiva, de cálculo, não tiver alternativas "
+                                        "ou não estiver legível o suficiente para determinar a resposta, "
+                                        "diga 'Exercício N, sem gabarito seguro.' Não invente respostas. "
+                                        "Responda todos os números solicitados, cada um uma única vez."
+                                    )},
+                                    {"type": "input_image", "image_url": "data:image/jpeg;base64," + imagem_b64}
+                                ]}]
+                            )
+                            resumo = (resposta.output_text or "").strip()
+                            if not resumo:
+                                resumo = "Não consegui determinar um gabarito seguro nesta foto."
+                            criar_e_enviar_audio_ia(
+                                resumo + " Agora você pode escolher novamente. " + texto_menu_exercicios(opcoes),
+                                menu=True, velocidade=1.2
+                            )
+                        except Exception as erro:
+                            adicionar_log_esp32("ERRO", f"Falha no gabarito rápido: {erro}")
+                            atualizar_status_ia("ERRO", "🔴 ERRO NO GABARITO RÁPIDO", "Consulte os logs.")
+
+                    threading.Thread(
+                        target=gerar_gabarito_rapido,
+                        args=(caminho_foto, opcoes_resumo), daemon=True
+                    ).start()
+                    continue
+
                 if quantidade > total:
                     with lock:
                         aguardando_resposta_menu = True
@@ -3301,8 +3354,10 @@ def websocket_esp32(ws):
                             conteudo_ia[0]["text"] = (
                                 f"Observe novamente esta imagem original e responda SOMENTE o exercício {numero}. "
                                 "Leia tudo DIRETAMENTE DA FOTO e confira cuidadosamente antes de responder. "
-                                "É uma questão objetiva. Identifique a alternativa correta e explique de forma clara e direta por que ela está correta. "
-                                "Quando for útil, explique brevemente por que as demais estão erradas. "
+                                "É uma questão objetiva. Analise todas as alternativas internamente, mas na resposta falada "
+                                "informe SOMENTE a letra da alternativa escolhida, leia o texto integral dessa alternativa "
+                                "e explique brevemente por que ela está correta (no máximo duas frases). "
+                                "NÃO leia, enumere, comente ou explique as demais alternativas. "
                                 "Não repita o enunciado, pois ele será lido separadamente antes da resposta. "
                                 "Não use guia de escrita linha por linha, markdown, tabelas ou comandos LaTeX. "
                                 "Não invente informação ilegível e não responda outros exercícios."
