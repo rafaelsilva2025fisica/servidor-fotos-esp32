@@ -2325,7 +2325,7 @@ def baixar_audio_pacote(audio_id):
         return jsonify({"erro": "Arquivo vazio"}), 404
 
     intervalo = request.headers.get("Range", "")
-    match = re.fullmatch(r"bytes=(\\d+)-(\\d+)", intervalo)
+    match = re.fullmatch(r"bytes=(\d+)-(\d+)", intervalo)
     if not match:
         return jsonify({"erro": "Informe Range: bytes=inicio-fim"}), 400
 
