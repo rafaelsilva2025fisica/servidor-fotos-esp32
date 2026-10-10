@@ -1780,9 +1780,9 @@ def enviar_audio():
     # =====================================================
     # WEBM -> WAV PCM
     #
-    # 16000 Hz
+    # 12000 Hz
     # mono
-    # PCM signed 16-bit little endian
+    # IMA ADPCM WAV
     # =====================================================
 
     try:
@@ -1794,9 +1794,9 @@ def enviar_audio():
             caminho_webm,
             "-vn",
             "-acodec",
-            "pcm_s16le",
+            "adpcm_ima_wav",
             "-ar",
-            "16000",
+            "12000",
             "-ac",
             "1",
             caminho_wav
@@ -1883,7 +1883,7 @@ def enviar_audio():
     )
 
     print(
-        "FORMATO: PCM 16-bit / 16000 Hz / mono",
+        "FORMATO: IMA ADPCM / 12000 Hz / mono",
         flush=True
     )
 
@@ -1949,8 +1949,8 @@ def enviar_audio():
     return jsonify({
         "ok": True,
         "audio_id": audio_id,
-        "formato": "wav_pcm_s16le",
-        "sample_rate": 16000,
+        "formato": "wav_ima_adpcm",
+        "sample_rate": 12000,
         "canais": 2,
         "tamanho": tamanho_wav
     })
@@ -2689,8 +2689,8 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
             "-y",
             "-i", caminho_mp3,
             "-vn",
-            "-acodec", "pcm_s16le",
-            "-ar", "16000",
+            "-acodec", "adpcm_ima_wav",
+            "-ar", "12000",
             "-ac", "1",
             caminho_wav
         ]
@@ -2748,7 +2748,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
         print("ID:", audio_id, flush=True)
         print("WAV:", caminho_wav, flush=True)
         print("TAMANHO:", tamanho_wav, "bytes", flush=True)
-        print("FORMATO: PCM 16-bit / 16000 Hz / mono", flush=True)
+        print("FORMATO: IMA ADPCM / 12000 Hz / mono", flush=True)
         print("SERVIDOR -> ESP32:", comando, flush=True)
         print("================================", flush=True)
 
