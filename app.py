@@ -2833,7 +2833,8 @@ def analisar_foto_nova_com_ia(caminho, nome):
             criar_e_enviar_audio_ia(
                 "Não consegui detectar nenhum exercício legível nesta imagem. "
                 "Aguarde trinta segundos sem apertar o botão. Depois, tire outra foto.",
-                menu=False
+                menu=False,
+                velocidade=1.4
             )
             return
 
