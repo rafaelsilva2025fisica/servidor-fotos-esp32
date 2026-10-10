@@ -3034,7 +3034,7 @@ def arquivo_galeria(nome):
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
-    global aguardando_resposta_menu, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel
+    global aguardando_resposta_menu, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel, texto_ultimo_gabarito
 
     global esp_ws
 
