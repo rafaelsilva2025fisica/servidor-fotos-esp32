@@ -55,6 +55,7 @@ aguardando_resposta_menu = False
 foto_sessao_atual = None
 nome_foto_sessao_atual = None
 quantidade_exercicios_sessao = 0
+gabarito_rapido_disponivel = False
 
 # Material-base opcional para a resolução dos exercícios do submenu.
 # Também pode ser definido no Render por MATERIAL_BASE_FILE_ID.
@@ -2605,7 +2606,7 @@ def quantidade_por_extenso(numero):
     return nomes.get(numero, str(numero))
 
 
-def texto_menu_exercicios(exercicios):
+def texto_menu_exercicios(exercicios, incluir_gabarito=False):
     partes = []
     for posicao, exercicio in enumerate(exercicios, start=1):
         numero_real = str(exercicio.get("numero", posicao)).strip()
@@ -2614,6 +2615,11 @@ def texto_menu_exercicios(exercicios):
         partes.append(
             f"Para ouvir a resolução do exercício {numero_real}, aperte {vezes} {termo} o botão."
         )
+    if incluir_gabarito:
+        posicao = len(exercicios) + 1
+        vezes = quantidade_por_extenso(posicao)
+        termo = "vez" if posicao == 1 else "vezes"
+        partes.append(f"Para ouvir o gabarito rápido de todos os exercícios, aperte {vezes} {termo} o botão.")
     partes.append(
         "Depois deste áudio, você terá quinze segundos para escolher. "
         "Se não apertar o botão, a sessão será encerrada."
@@ -2766,7 +2772,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
 # =========================================================
 
 def analisar_foto_nova_com_ia(caminho, nome):
-    global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao
+    global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel
 
     if openai_client is None:
         print(">>> IA NAO CONFIGURADA: OPENAI_API_KEY AUSENTE <<<", flush=True)
@@ -2829,6 +2835,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
                 foto_sessao_atual = None
                 nome_foto_sessao_atual = None
                 quantidade_exercicios_sessao = 0
+                gabarito_rapido_disponivel = False
             adicionar_log_esp32("AVISO", "IA não encontrou exercício legível na foto.")
             criar_e_enviar_audio_ia(
                 "Não consegui detectar nenhum exercício legível nesta imagem. "
@@ -2840,6 +2847,26 @@ def analisar_foto_nova_com_ia(caminho, nome):
 
         quantidade = len(exercicios)
 
+        # Verifica se TODAS as questões têm alternativas objetivas.
+        # Na dúvida, não oferece o gabarito rápido.
+        gabarito_disponivel = False
+        try:
+            verificacao = openai_client.responses.create(
+                model=OPENAI_MODEL,
+                input=[{"role": "user", "content": [
+                    {"type": "input_text", "text": (
+                        "Confira na FOTO ORIGINAL se TODOS os exercícios identificados são questões "
+                        "de múltipla escolha com alternativas para marcar (A/B/C/D/E ou similares). "
+                        "Responda EXATAMENTE SIM se todos forem de múltipla escolha; "
+                        "caso haja alguma questão discursiva, cálculo sem alternativas ou dúvida, responda NAO."
+                    )},
+                    {"type": "input_image", "image_url": "data:image/jpeg;base64," + imagem_b64}
+                ]}]
+            )
+            gabarito_disponivel = (verificacao.output_text or "").strip().upper() == "SIM"
+        except Exception as erro_tipo:
+            adicionar_log_esp32("AVISO", f"Não foi possível classificar a foto para gabarito rápido: {erro_tipo}")
+
         with lock:
             # A transcrição serve apenas para contar/montar o menu.
             # A resolução usará novamente a FOTO ORIGINAL.
@@ -2847,6 +2874,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
             foto_sessao_atual = caminho
             nome_foto_sessao_atual = nome
             quantidade_exercicios_sessao = quantidade
+            gabarito_rapido_disponivel = gabarito_disponivel
         adicionar_log_esp32("OK", f"IA identificou {quantidade} exercício(s) na foto nova.")
         atualizar_status_ia("IDENTIFICADOS", f"🟢 {quantidade} EXERCÍCIO(S) IDENTIFICADO(S)", "A leitura terminou. Agora vou preparar o áudio com as opções.")
 
@@ -2878,7 +2906,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
                 + f" e exercício {numeros_identificados[-1]}. "
             )
 
-        texto_menu = identificacao + texto_menu_exercicios(exercicios)
+        texto_menu = identificacao + texto_menu_exercicios(exercicios, incluir_gabarito=gabarito_disponivel)
 
         criar_e_enviar_audio_ia(texto_menu, menu=True, velocidade=1.4)
 
@@ -2999,7 +3027,7 @@ def arquivo_galeria(nome):
 
 @sock.route("/ws-esp32")
 def websocket_esp32(ws):
-    global aguardando_resposta_menu, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao
+    global aguardando_resposta_menu, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel
 
     global esp_ws
 
@@ -3181,6 +3209,7 @@ def websocket_esp32(ws):
                         foto_sessao_atual = None
                         nome_foto_sessao_atual = None
                         quantidade_exercicios_sessao = 0
+                        gabarito_rapido_disponivel = False
                     print(">>> SESSAO ENCERRADA: CLIQUES|0 <<<", flush=True)
                     adicionar_log_esp32(
                         "OK",
@@ -3197,9 +3226,61 @@ def websocket_esp32(ws):
                     caminho_foto = foto_sessao_atual
                     nome_foto = nome_foto_sessao_atual
                     total = quantidade_exercicios_sessao
+                    permite_gabarito = gabarito_rapido_disponivel
 
                 if not caminho_foto or not os.path.exists(caminho_foto):
                     adicionar_log_esp32("ERRO", "Não existe foto original ativa para esta sessão.")
+                    continue
+
+                if permite_gabarito and quantidade == total + 1:
+                    with lock:
+                        opcoes_gabarito = [dict(item) for item in exercicios_atuais]
+                    atualizar_status_ia("RESOLVENDO", "🟣 IA PREPARANDO GABARITO RÁPIDO...", "Conferindo as alternativas diretamente na foto original.")
+                    adicionar_log_esp32("INFO", "Gabarito rápido selecionado; conferindo todas as questões na foto.")
+
+                    def gerar_gabarito_rapido(caminho_imagem, opcoes):
+                        try:
+                            with open(caminho_imagem, "rb") as arquivo:
+                                imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
+                            numeros = [str(item.get("numero", "")).strip() for item in opcoes]
+                            pedido = (
+                                "Confira a FOTO ORIGINAL e resolva TODAS as questões objetivas "
+                                "da lista de números: " + ", ".join(numeros) + ". "
+                                "Leia os enunciados e alternativas completos. Não adivinhe. "
+                                "Retorne UMA LINHA por questão, na mesma ordem, SOMENTE neste formato: "
+                                "EXERCICIO <numero>: LETRA <A/B/C/D/E> ou EXERCICIO <numero>: ILEGIVEL. "
+                                "Use ILEGIVEL se não puder determinar a alternativa com segurança. "
+                                "Não inclua justificativas, outras questões ou textos adicionais."
+                            )
+                            resposta = openai_client.responses.create(model=OPENAI_MODEL, input=[{
+                                "role": "user", "content": [
+                                    {"type": "input_text", "text": pedido},
+                                    {"type": "input_image", "image_url": "data:image/jpeg;base64," + imagem_b64}
+                                ]
+                            }])
+                            import re
+                            bruto = (resposta.output_text or "").strip()
+                            linhas = {}
+                            for numero, resultado in re.findall(
+                                r"(?im)^\s*EXERCICIO\s+([A-Za-z0-9._-]+)\s*:\s*(LETRA\s+[A-E]|ILEGIVEL)\s*$", bruto
+                            ):
+                                if numero not in linhas:
+                                    linhas[numero] = resultado.upper().strip()
+                            partes = []
+                            for numero in numeros:
+                                resultado = linhas.get(numero, "ILEGIVEL")
+                                if resultado.startswith("LETRA "):
+                                    partes.append(f"Exercício {numero}, letra {resultado[-1]}.")
+                                else:
+                                    partes.append(f"Exercício {numero}, não consegui determinar a alternativa com segurança.")
+                            texto_gabarito = "Gabarito rápido. " + " ".join(partes)
+                            if not criar_e_enviar_audio_ia(texto_gabarito, menu=False, velocidade=1.4):
+                                atualizar_status_ia("ERRO", "🔴 FALHA NO GABARITO", "Não foi possível enviar o áudio.")
+                        except Exception as erro:
+                            adicionar_log_esp32("ERRO", f"Falha no gabarito rápido: {erro}")
+                            atualizar_status_ia("ERRO", "🔴 ERRO NO GABARITO", "Falha ao conferir a foto.")
+
+                    threading.Thread(target=gerar_gabarito_rapido, args=(caminho_foto, opcoes_gabarito), daemon=True).start()
                     continue
 
                 if quantidade > total:
@@ -3413,7 +3494,7 @@ def websocket_esp32(ws):
                                               if enunciado_exercicio else f"Exercício {numero}. ")
                             texto_final = (abertura_audio + "Resolução. " + resolucao + " "
                                            "Agora você pode escolher novamente. "
-                                           + texto_menu_exercicios(opcoes_exercicios))
+                                           + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito))
                         # menu=True preserva a selecao por cliques apos o audio,
                         # mesmo quando a questao objetiva nao repete as instrucoes faladas.
                         if not criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=velocidade_audio):
