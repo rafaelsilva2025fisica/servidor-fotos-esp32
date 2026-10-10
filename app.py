@@ -56,6 +56,7 @@ foto_sessao_atual = None
 nome_foto_sessao_atual = None
 quantidade_exercicios_sessao = 0
 gabarito_rapido_disponivel = False
+texto_ultimo_gabarito = None
 
 # Material-base opcional para a resolução dos exercícios do submenu.
 # Também pode ser definido no Render por MATERIAL_BASE_FILE_ID.
@@ -2606,7 +2607,7 @@ def quantidade_por_extenso(numero):
     return nomes.get(numero, str(numero))
 
 
-def texto_menu_exercicios(exercicios, incluir_gabarito=False):
+def texto_menu_exercicios(exercicios, incluir_gabarito=False, repetir_gabarito=False):
     partes = []
     for posicao, exercicio in enumerate(exercicios, start=1):
         numero_real = str(exercicio.get("numero", posicao)).strip()
@@ -2620,6 +2621,11 @@ def texto_menu_exercicios(exercicios, incluir_gabarito=False):
         vezes = quantidade_por_extenso(posicao)
         termo = "vez" if posicao == 1 else "vezes"
         partes.append(f"Para ouvir o gabarito rápido de todos os exercícios, aperte {vezes} {termo} o botão.")
+    if incluir_gabarito and repetir_gabarito:
+        posicao = len(exercicios) + 2
+        vezes = quantidade_por_extenso(posicao)
+        termo = "vez" if posicao == 1 else "vezes"
+        partes.append(f"Para ouvir novamente o gabarito rápido, aperte {vezes} {termo} o botão.")
     partes.append(
         "Depois deste áudio, você terá quinze segundos para escolher. "
         "Se não apertar o botão, a sessão será encerrada."
@@ -2772,7 +2778,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
 # =========================================================
 
 def analisar_foto_nova_com_ia(caminho, nome):
-    global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel
+    global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel, texto_ultimo_gabarito
 
     if openai_client is None:
         print(">>> IA NAO CONFIGURADA: OPENAI_API_KEY AUSENTE <<<", flush=True)
@@ -2832,6 +2838,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
         if not exercicios:
             with lock:
                 exercicios_atuais.clear()
+                texto_ultimo_gabarito = None
                 foto_sessao_atual = None
                 nome_foto_sessao_atual = None
                 quantidade_exercicios_sessao = 0
@@ -3206,6 +3213,7 @@ def websocket_esp32(ws):
                 if quantidade <= 0:
                     with lock:
                         exercicios_atuais.clear()
+                        texto_ultimo_gabarito = None
                         foto_sessao_atual = None
                         nome_foto_sessao_atual = None
                         quantidade_exercicios_sessao = 0
@@ -3230,6 +3238,17 @@ def websocket_esp32(ws):
 
                 if not caminho_foto or not os.path.exists(caminho_foto):
                     adicionar_log_esp32("ERRO", "Não existe foto original ativa para esta sessão.")
+                    continue
+
+                # Opção extra aparece após o primeiro gabarito: repetir sem consultar a IA.
+                with lock:
+                    gabarito_anterior = texto_ultimo_gabarito
+                    opcoes_repeticao = [dict(item) for item in exercicios_atuais]
+                if permite_gabarito and gabarito_anterior and quantidade == total + 2:
+                    texto_repeticao = (gabarito_anterior + " Agora você pode escolher novamente. "
+                        + texto_menu_exercicios(opcoes_repeticao, incluir_gabarito=True, repetir_gabarito=True))
+                    if not criar_e_enviar_audio_ia(texto_repeticao, menu=True, velocidade=1.4):
+                        atualizar_status_ia("ERRO", "🔴 FALHA NO ÁUDIO", "Não foi possível repetir o gabarito.")
                     continue
 
                 if permite_gabarito and quantidade == total + 1:
@@ -3274,7 +3293,12 @@ def websocket_esp32(ws):
                                 else:
                                     partes.append(f"Exercício {numero}, não consegui determinar a alternativa com segurança.")
                             texto_gabarito = "Gabarito rápido. " + " ".join(partes)
-                            if not criar_e_enviar_audio_ia(texto_gabarito, menu=False, velocidade=1.4):
+                            with lock:
+                                global texto_ultimo_gabarito
+                                texto_ultimo_gabarito = texto_gabarito
+                            texto_com_menu = (texto_gabarito + " Agora você pode escolher novamente. "
+                                + texto_menu_exercicios(opcoes, incluir_gabarito=True, repetir_gabarito=True))
+                            if not criar_e_enviar_audio_ia(texto_com_menu, menu=True, velocidade=1.4):
                                 atualizar_status_ia("ERRO", "🔴 FALHA NO GABARITO", "Não foi possível enviar o áudio.")
                         except Exception as erro:
                             adicionar_log_esp32("ERRO", f"Falha no gabarito rápido: {erro}")
@@ -3494,7 +3518,7 @@ def websocket_esp32(ws):
                                               if enunciado_exercicio else f"Exercício {numero}. ")
                             texto_final = (abertura_audio + "Resolução. " + resolucao + " "
                                            "Agora você pode escolher novamente. "
-                                           + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito))
+                                           + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito, repetir_gabarito=bool(texto_ultimo_gabarito)))
                         # menu=True preserva a selecao por cliques apos o audio,
                         # mesmo quando a questao objetiva nao repete as instrucoes faladas.
                         if not criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=velocidade_audio):
