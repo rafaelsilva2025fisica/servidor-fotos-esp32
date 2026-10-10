@@ -1216,7 +1216,7 @@ botaoEnviar.onclick = async function() {
         audioAtualId = dados.audio_id;
 
         mensagem.textContent =
-            "📡 WAV pronto. ESP32 avisada. Aguardando download...";
+            "📡 MP3 pronto. ESP32 avisada. Aguardando download...";
 
         verificarConfirmacao();
 
@@ -1258,7 +1258,7 @@ async function verificarConfirmacao() {
         if (dados.recebido === true) {
 
             mensagem.textContent =
-                "✅ ÁUDIO WAV RECEBIDO PELA ESP32";
+                "✅ ÁUDIO MP3 RECEBIDO PELA ESP32";
 
             botaoEnviar.disabled = false;
 
@@ -1266,7 +1266,7 @@ async function verificarConfirmacao() {
         }
 
         mensagem.textContent =
-            "📡 Aguardando a ESP32 receber o WAV...";
+            "📡 Aguardando a ESP32 receber o MP3...";
 
         setTimeout(
             verificarConfirmacao,
@@ -1720,7 +1720,7 @@ def status():
 
 
 # =========================================================
-# RECEBER WEBM E CONVERTER PARA WAV
+# RECEBER WEBM E CONVERTER PARA MP3
 # =========================================================
 
 @app.route("/api/status-ia")
@@ -1764,9 +1764,9 @@ def enviar_audio():
         audio_id + ".webm"
     )
 
-    caminho_wav = os.path.join(
+    caminho_mp3 = os.path.join(
         AUDIO_DIR,
-        audio_id + ".wav"
+        audio_id + ".mp3"
     )
 
     arquivo.save(caminho_webm)
@@ -1778,7 +1778,7 @@ def enviar_audio():
     )
 
     # =====================================================
-    # WEBM -> WAV PCM
+    # WEBM -> MP3 PCM
     #
     # 44100 Hz
     # estéreo
@@ -1794,12 +1794,12 @@ def enviar_audio():
             caminho_webm,
             "-vn",
             "-acodec",
-            "pcm_s16le",
-            "-ar",
-            "44100",
+            "libmp3lame",
+            "-b:a",
+            "64k",
             "-ac",
-            "2",
-            caminho_wav
+            "1",
+            caminho_mp3
         ]
 
         resultado = subprocess.run(
@@ -1827,7 +1827,7 @@ def enviar_audio():
             )
 
             return jsonify({
-                "erro": "Falha ao converter o áudio para WAV."
+                "erro": "Falha ao converter o áudio para MP3."
             }), 500
 
     except Exception as erro:
@@ -1851,13 +1851,13 @@ def enviar_audio():
     except Exception:
         pass
 
-    if not os.path.exists(caminho_wav):
+    if not os.path.exists(caminho_mp3):
 
         return jsonify({
-            "erro": "O WAV não foi criado."
+            "erro": "O MP3 não foi criado."
         }), 500
 
-    tamanho_wav = os.path.getsize(caminho_wav)
+    tamanho_mp3 = os.path.getsize(caminho_mp3)
 
     print(
         "================================",
@@ -1865,7 +1865,7 @@ def enviar_audio():
     )
 
     print(
-        ">>> WAV CRIADO COM SUCESSO <<<",
+        ">>> MP3 CRIADO COM SUCESSO <<<",
         flush=True
     )
 
@@ -1877,13 +1877,13 @@ def enviar_audio():
 
     print(
         "TAMANHO:",
-        tamanho_wav,
+        tamanho_mp3,
         "bytes",
         flush=True
     )
 
     print(
-        "FORMATO: PCM 16-bit / 44100 Hz / stereo",
+        "FORMATO: MP3 64 kbps / mono",
         flush=True
     )
 
@@ -1895,12 +1895,13 @@ def enviar_audio():
     with lock:
 
         audios[audio_id] = {
-            "arquivo": caminho_wav,
+            "arquivo": caminho_mp3,
             "recebido": False,
             "criado": time.time(),
             "menu": False,
             "tipo_galeria": "manual",
             "titulo_galeria": "Áudio manual",
+            "formato": "mp3",
             "tentativas_recuperacao": 0
         }
 
@@ -1949,17 +1950,17 @@ def enviar_audio():
     return jsonify({
         "ok": True,
         "audio_id": audio_id,
-        "formato": "wav_pcm_s16le",
-        "sample_rate": 44100,
-        "canais": 2,
-        "tamanho": tamanho_wav
+        "formato": "mp3",
+        "bitrate_kbps": 64,
+        "canais": 1,
+        "tamanho": tamanho_mp3
     })
 
 
 
 # =========================================================
 # GALERIA DE ÁUDIOS
-# Permite ouvir no navegador os mesmos WAVs enviados à ESP32.
+# Permite ouvir no navegador os mesmos MP3s enviados à ESP32.
 # =========================================================
 
 def _formatar_tamanho_audio(tamanho):
@@ -2019,7 +2020,7 @@ def ouvir_audio_galeria(audio_id):
 
     return send_file(
         caminho,
-        mimetype="audio/wav",
+        mimetype="audio/mpeg",
         conditional=True,
         download_name=os.path.basename(caminho)
     )
@@ -2033,7 +2034,7 @@ def excluir_audio_galeria(audio_id):
     if not info:
         return jsonify({"erro": "Áudio não encontrado."}), 404
 
-    # Não apaga enquanto a ESP32 ainda pode precisar baixar o WAV.
+    # Não apaga enquanto a ESP32 ainda pode precisar baixar o MP3.
     if not info.get("recebido"):
         return jsonify({
             "erro": "A ESP32 ainda não confirmou o recebimento deste áudio. Aguarde antes de excluir."
@@ -2303,7 +2304,7 @@ def status_arquivo_esp(arquivo_id):
 
 
 # =========================================================
-# DOWNLOAD DO WAV
+# DOWNLOAD DO MP3
 # =========================================================
 
 @app.route("/audio/<audio_id>", methods=["GET"])
@@ -2330,7 +2331,7 @@ def baixar_audio(audio_id):
     # O ESP32 solicita blocos de tamanho limitado e pode retomar apos queda.
     tamanho = os.path.getsize(caminho)
     faixa = request.headers.get("Range", "")
-    print(f">>> DOWNLOAD WAV {audio_id}: {faixa or 'completo'} / {tamanho} bytes", flush=True)
+    print(f">>> DOWNLOAD MP3 {audio_id}: {faixa or 'completo'} / {tamanho} bytes", flush=True)
 
     # O watchdog conta inatividade entre blocos, nao duracao total do download.
     with lock:
@@ -2338,14 +2339,14 @@ def baixar_audio(audio_id):
         if estado_atual in ESTADOS_ESP_COM_TIMEOUT:
             status_ia["estado"] = "BAIXANDO_AUDIO"
             status_ia["titulo"] = "⬇️ BAIXANDO ÁUDIO"
-            status_ia["detalhe"] = f"ESP32 recebendo WAV {audio_id} em blocos."
+            status_ia["detalhe"] = f"ESP32 recebendo MP3 {audio_id} em blocos."
             status_ia["inicio"] = time.time()
 
     resposta = send_file(
         caminho,
-        mimetype="audio/wav",
+        mimetype="audio/mpeg",
         as_attachment=False,
-        download_name="audio.wav",
+        download_name="audio.mp3",
         conditional=True,
         etag=True,
     )
@@ -2357,7 +2358,7 @@ def baixar_audio(audio_id):
 # =========================================================
 # RECUPERACAO AUTOMATICA DE AUDIO
 # A ESP32 chama este endpoint quando o download/gravacao falha.
-# O servidor NAO chama a IA novamente: reenvia o mesmo WAV pronto.
+# O servidor NAO chama a IA novamente: reenvia o mesmo MP3 pronto.
 # =========================================================
 
 @app.route("/audio-download-erro/<audio_id>", methods=["GET"])
@@ -2385,14 +2386,14 @@ def audio_download_erro(audio_id):
     if not caminho or not os.path.exists(caminho):
         adicionar_log_esp32(
             "ERRO",
-            f"Falha no áudio {audio_id}: WAV não existe mais no disco do servidor."
+            f"Falha no áudio {audio_id}: MP3 não existe mais no disco do servidor."
         )
         atualizar_status_ia(
             "ERRO_AUDIO",
-            "🔴 WAV NÃO ENCONTRADO",
-            "Não foi possível reenviar o último áudio porque o arquivo WAV não existe mais."
+            "🔴 MP3 NÃO ENCONTRADO",
+            "Não foi possível reenviar o último áudio porque o arquivo MP3 não existe mais."
         )
-        return jsonify({"ok": False, "erro": "Arquivo WAV não existe."}), 404
+        return jsonify({"ok": False, "erro": "Arquivo MP3 não existe."}), 404
 
     # Evita loop infinito caso exista problema persistente de rede/SD.
     if tentativas > 2:
@@ -2429,11 +2430,11 @@ def audio_download_erro(audio_id):
         atualizar_status_ia(
             "REENVIANDO_AUDIO",
             "🟠 REENVIANDO ÚLTIMO ÁUDIO...",
-            f"A ESP32 informou falha no download/gravação. Estou reenviando o mesmo WAV. Tentativa {tentativas} de 2."
+            f"A ESP32 informou falha no download/gravação. Estou reenviando o mesmo MP3. Tentativa {tentativas} de 2."
         )
         adicionar_log_esp32(
             "AVISO",
-            f"Falha no áudio {audio_id}. Reenviando automaticamente o mesmo WAV; tentativa {tentativas} de 2."
+            f"Falha no áudio {audio_id}. Reenviando automaticamente o mesmo MP3; tentativa {tentativas} de 2."
         )
 
         socket_atual.send(comando)
@@ -2595,7 +2596,7 @@ def tirar_foto():
 
 
 # =========================================================
-# IA -> VOZ -> WAV -> ESP32
+# IA -> VOZ -> MP3 -> ESP32
 # Reutiliza exatamente o protocolo NOVO_AUDIO|ID já existente.
 # =========================================================
 
@@ -2665,8 +2666,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
         return False
 
     audio_id = uuid.uuid4().hex[:12]
-    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + "_ia.mp3")
-    caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
+    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + ".mp3")
 
     try:
         atualizar_status_ia("CRIANDO_AUDIO", "🟠 CRIANDO ÁUDIO...", "A resposta da IA está pronta. Agora estou transformando o texto em voz.")
@@ -2684,41 +2684,16 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
 
         print(">>> IA TTS: MP3 CRIADO:", caminho_mp3, "<<<", flush=True)
 
-        comando_ffmpeg = [
-            FFMPEG,
-            "-y",
-            "-i", caminho_mp3,
-            "-vn",
-            "-acodec", "pcm_s16le",
-            "-ar", "44100",
-            "-ac", "2",
-            caminho_wav
-        ]
-
-        resultado = subprocess.run(
-            comando_ffmpeg,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=60
-        )
-
-        try:
-            os.remove(caminho_mp3)
-        except Exception:
-            pass
-
-        if resultado.returncode != 0 or not os.path.exists(caminho_wav):
-            erro_ffmpeg = resultado.stderr.decode("utf-8", errors="ignore")
-            print(">>> IA TTS: ERRO FFMPEG <<<", flush=True)
-            print(erro_ffmpeg, flush=True)
-            adicionar_log_esp32("ERRO", "Falha convertendo voz da IA para WAV.")
+        # MP3 ja gerado pelo TTS na velocidade solicitada; nao converter para MP3.
+        if not os.path.isfile(caminho_mp3) or os.path.getsize(caminho_mp3) == 0:
+            adicionar_log_esp32("ERRO", "MP3 da IA nao foi gerado corretamente.")
             return False
 
-        tamanho_wav = os.path.getsize(caminho_wav)
+        tamanho_mp3 = os.path.getsize(caminho_mp3)
 
         with lock:
             audios[audio_id] = {
-                "arquivo": caminho_wav,
+                "arquivo": caminho_mp3,
                 "recebido": False,
                 "criado": time.time(),
                 "menu": bool(menu),
@@ -2731,6 +2706,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
                     if float(velocidade) < 0.99
                     else ("Menu da foto" if menu else "Resposta da IA")
                 ),
+                "formato": "mp3",
                 "tentativas_recuperacao": 0
             }
             socket_atual = esp_ws
@@ -2746,15 +2722,15 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
         print("================================", flush=True)
         print(">>> AUDIO DA IA PRONTO <<<", flush=True)
         print("ID:", audio_id, flush=True)
-        print("WAV:", caminho_wav, flush=True)
-        print("TAMANHO:", tamanho_wav, "bytes", flush=True)
-        print("FORMATO: PCM 16-bit / 44100 Hz / stereo", flush=True)
+        print("MP3:", caminho_mp3, flush=True)
+        print("TAMANHO:", tamanho_mp3, "bytes", flush=True)
+        print("FORMATO: MP3 (TTS original)", flush=True)
         print("SERVIDOR -> ESP32:", comando, flush=True)
         print("================================", flush=True)
 
         adicionar_log_esp32(
             "OK",
-            f"Áudio da IA criado e enviado à ESP32: {audio_id} ({tamanho_wav} bytes)."
+            f"Áudio da IA criado e enviado à ESP32: {audio_id} ({tamanho_mp3} bytes)."
         )
         atualizar_status_ia(
             "AUDIO_ENVIADO",
@@ -3141,15 +3117,15 @@ def websocket_esp32(ws):
                             audios[audio_id]["tentativas_recuperacao"] = 0
 
                     print(
-                        ">>> WAV CONFIRMADO PELA ESP32:",
+                        ">>> MP3 CONFIRMADO PELA ESP32:",
                         audio_id,
                         flush=True
                     )
-                    adicionar_log_esp32("OK", f"ESP32 confirmou o áudio WAV {audio_id}.")
+                    adicionar_log_esp32("OK", f"ESP32 confirmou o áudio MP3 {audio_id}.")
                     with lock:
                         esperando_menu_agora = aguardando_resposta_menu
                     if not esperando_menu_agora:
-                        atualizar_status_ia("AGUARDANDO_REPRODUCAO", "🔊 AGUARDANDO REPRODUÇÃO", "WAV recebido; aguardando Bluetooth e reprodução.")
+                        atualizar_status_ia("AGUARDANDO_REPRODUCAO", "🔊 AGUARDANDO REPRODUÇÃO", "MP3 recebido; aguardando Bluetooth e reprodução.")
                     if esperando_menu_agora:
                         atualizar_status_ia(
                             "AGUARDANDO_ESCOLHA",
