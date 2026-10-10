@@ -2637,9 +2637,13 @@ def preparar_texto_para_tts(texto):
     """Evita pronuncias ruins de diferenciais matematicos no TTS."""
     import re
     texto = str(texto or "")
-    texto = re.sub(r'(?<![A-Za-z])dx(?![A-Za-z])', 'd x', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'(?<![A-Za-z])dy(?![A-Za-z])', 'd y', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'(?<![A-Za-z])dz(?![A-Za-z])', 'd z', texto, flags=re.IGNORECASE)
+    # Pronuncia convencional do guia: "del" identifica somente os diferenciais.
+    # Nao alterar a escrita matematica da resolucao, apenas o texto para voz.
+    for variavel, falado in (("theta", "teta"), ("teta", "teta"), ("θ", "teta"),
+                            ("x", "xis"), ("y", "ipsilon"), ("z", "ze"), ("r", "erre"),
+                            ("t", "te"), ("u", "u"), ("v", "ve")):
+        texto = re.sub(r'(?<![A-Za-z])d\s*' + re.escape(variavel) + r'(?![A-Za-z])',
+                       'del ' + falado, texto, flags=re.IGNORECASE)
     return texto
 
 
@@ -3429,12 +3433,28 @@ def websocket_esp32(ws):
                                             "Se um número ou termo tiver valor negativo, diga 'negativo' antes dele. "
                                             "Quando precisar ditar explicitamente o símbolo de um valor negativo, diga 'sinal menos de valor negativo'. "
 
-                                            "PRONÚNCIA: escreva para a voz sempre 'd x', 'd y' e 'd z', separados; nunca dx, dy ou dz grudados. "
+                                            "PRONÚNCIA DOS DIFERENCIAIS: use SEMPRE a palavra 'del' apenas para o diferencial no FINAL da expressão: "
+                                            "'del erre' para dr, 'del teta' para dθ, 'del ze' para dz, 'del xis' para dx e 'del ipsilon' para dy. "
+                                            "Nunca diga apenas 'de erre', 'de teta', 'd erre' ou 'd teta' para diferenciais. "
+                                            "O 'del' é somente uma convenção de pronúncia do áudio, não altera a escrita dr, dθ, dz etc. "
                                             "Fale expoentes como 'x ao quadrado', 'y ao cubo' e assim por diante. "
 
                                             "INTEGRAIS: dite primeiro a integral montada completa e depois cada linha da resolução pronta. "
-                                            "Em toda nova linha em que ainda houver integral, fale novamente 'escreva integral de [limite inferior] até [limite superior]' "
-                                            "e dite tudo que aparece naquela linha. "
+                                            "Para CADA símbolo de integral, anuncie 'integral, limite inferior [valor], limite superior [valor]', "
+                                            "respeitando a ordem em que as integrais são escritas. Não use a palavra 'de' para introduzir o integrando. "
+                                            "Após anunciar TODAS as integrais e respectivos limites, diga sempre 'abra parêntese. Expressão interna: [integrando]. Feche parêntese.' "
+                                            "Isso vale inclusive quando o integrando for só o número um ou uma constante. "
+                                            "Em seguida dite os diferenciais, um por um, na ordem exata da escrita, usando 'del'. "
+                                            "Se o integrando já contiver parênteses, preserve os parênteses internos e anuncie todos os fechamentos. "
+                                            "Os parênteses externos servem apenas para delimitar a expressão interna sem alterar o cálculo. "
+                                            "Em toda nova linha em que ainda houver integral, repita a integral COMPLETA com seus limites, "
+                                            "a expressão interna entre parênteses e todos os diferenciais. "
+                                            "COLCHETES DE INTEGRAÇÃO: depois de 'feche colchete', diga sempre "
+                                            "'limites do colchete: inferior [valor], superior [valor]'. "
+                                            "Nunca diga 'avaliado de', 'avaliado entre' ou 'avaliado até' para os limites do colchete. "
+                                            "VERIFICAÇÃO MATEMÁTICA: confira os limites de integração diretamente com as equações e a região do enunciado. "
+                                            "Por exemplo, x ao quadrado mais y ao quadrado igual a quatro corresponde a raio dois, não raio um. "
+                                            "Confira a consistência das substituições e do resultado final antes de ditar. "
                                             "Ao terminar uma integração, simplesmente dite a próxima expressão a ser escrita. "
                                             "Nunca fale 'primitiva', 'integral primitiva', 'antiderivada' ou explicações do método. "
                                             "O áudio deve ser um DITADO DA RESOLUÇÃO PRONTA, e não uma aula. "
