@@ -2880,7 +2880,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
 
         texto_menu = identificacao + texto_menu_exercicios(exercicios)
 
-        criar_e_enviar_audio_ia(texto_menu, menu=True)
+        criar_e_enviar_audio_ia(texto_menu, menu=True, velocidade=1.4)
 
     except Exception as erro:
         print(">>> ERRO NA ANALISE DA IA:", repr(erro), flush=True)
