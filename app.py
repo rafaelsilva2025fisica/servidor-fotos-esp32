@@ -2829,7 +2829,11 @@ def analisar_foto_nova_com_ia(caminho, nome):
                     {
                         "type": "input_text",
                         "text": (
-                            "Leia a imagem e identifique somente os exercícios ou questões legíveis. "
+                            "Leia a imagem e identifique cada QUESTÃO E CADA SUBITEM legível como opção INDEPENDENTE do menu. "
+                            "Se houver questão 1 com itens a e b, devolva EXERCICIO 1A e EXERCICIO 1B em linhas distintas. "
+                            "Se houver questão 3 com itens a e b, devolva EXERCICIO 3A e EXERCICIO 3B. "
+                            "Cada subitem deve trazer o enunciado comum da questão e a condição específica do subitem. "
+                            "Não devolva EXERCICIO 3 contendo a e b juntos quando ambos forem legíveis. "
                             "Preserve obrigatoriamente o NÚMERO REAL impresso ao lado de cada exercício na foto. "
                             "NÃO renumere os exercícios começando em 1. "
                             "Exemplo: se a foto mostrar somente os exercícios 3 e 4, retorne EXERCICIO 3 e EXERCICIO 4. "
@@ -2913,7 +2917,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
             nome_foto_sessao_atual = nome
             quantidade_exercicios_sessao = quantidade
             gabarito_rapido_disponivel = gabarito_disponivel
-        adicionar_log_esp32("OK", f"IA identificou {quantidade} exercício(s) na foto nova.")
+        adicionar_log_esp32("OK", f"Menu: {quantidade} item(ns) independente(s): " + ", ".join(numeros for numeros in [str(e.get("numero", "")) for e in exercicios]))
         atualizar_status_ia("IDENTIFICADOS", f"🟢 {quantidade} EXERCÍCIO(S) IDENTIFICADO(S)", "A leitura terminou. Agora vou preparar o áudio com as opções.")
 
         # Confirmação visual na ESP32: a IA realmente terminou de ler a foto.
@@ -3465,7 +3469,7 @@ def websocket_esp32(ws):
                                             "Use pausas naturais por pontuação, mas não dependa apenas de pausas do sintetizador: fale os comandos de escrita. "
                                             "Cada nova linha deve ser COMPLETA e AUTOSSUFICIENTE. "
                                             "Nunca mande lembrar ou manter uma parte da linha anterior. "
-                                            "Se uma integral continuar na próxima linha, dite a integral inteira novamente, com limites, expressão e diferencial. "
+                                            "Se uma integral continuar na próxima linha, dite somente as integrais AINDA NÃO RESOLVIDAS, com limites, expressão e diferenciais restantes. "
                                             "Em vez de dizer 'mantenha a integral', diga por exemplo: "
                                             "'Na linha de baixo, escreva integral de zero até dois...' e dite todo o restante da linha. "
 
@@ -3513,7 +3517,11 @@ def websocket_esp32(ws):
                                             "Em seguida dite os diferenciais, um por um, na ordem exata da escrita, usando 'del'. "
                                             "Se o integrando já contiver parênteses, preserve os parênteses internos e anuncie todos os fechamentos. "
                                             "Os parênteses externos servem apenas para delimitar a expressão interna sem alterar o cálculo. "
-                                            "Em toda nova linha em que ainda houver integral, repita a integral COMPLETA com seus limites, "
+                                            "A CADA INTEGRAÇÃO EXECUTADA, ELIMINE O SÍMBOLO DE INTEGRAL E O DIFERENCIAL DA VARIÁVEL INTEGRADA. "
+                                            "Depois de integrar em z, uma integral tripla vira dupla; depois de integrar em y, vira simples. "
+                                            "É PROIBIDO voltar a escrever integral tripla após integrar em z ou repetir uma linha já ditada. "
+                                            "Se uma linha não mudou matematicamente, NÃO a dite novamente. "
+                                            "Em toda nova linha em que ainda houver integral, repita SOMENTE AS INTEGRAIS RESTANTES com seus limites, "
                                             "a expressão interna entre parênteses e todos os diferenciais. "
                                             "COLCHETES DE INTEGRAÇÃO: depois de 'feche colchete', diga sempre "
                                             "'limites do colchete: inferior [valor], superior [valor]'. "
@@ -3611,6 +3619,36 @@ def websocket_esp32(ws):
                         resolucao = (resposta.output_text or "").strip()
                         if not resolucao:
                             resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
+
+                        if not eh_objetiva and resolucao:
+                            # Segunda etapa: revisar antes de gerar a voz, sem alterar o enunciado.
+                            revisao = openai_client.responses.create(
+                                model=OPENAI_MODEL,
+                                input=[{
+                                    "role": "user", "content": [{
+                                        "type": "input_text",
+                                        "text": (
+                                            f"Revise o guia de escrita do exercício {numero} abaixo. "
+                                            "Verifique matemática, limites e resultado. Elimine repetições e reinícios. "
+                                            "Em integrais iteradas, a cada variável integrada, elimine exatamente "
+                                            "seu símbolo integral e seu diferencial; nunca volte à integral tripla "
+                                            "após ela virar dupla. Mantenha uma única linha por transformação "
+                                            "matemática efetiva. Preserve o formato de ditado para copiar, "
+                                            "com comandos de linha, abertura/fechamento de frações e parênteses. "
+                                            "Não omita etapas essenciais nem invente dados. "
+                                            "Devolva SOMENTE o guia corrigido, sem comentários de revisão. "
+                                            "Se a matemática não puder ser conferida, responda exatamente "
+                                            "REVISAO_INSEGURA.\n\nGUIA ORIGINAL:\n" + resolucao
+                                        )
+                                    }]
+                                }]
+                            )
+                            texto_revisado = (revisao.output_text or "").strip()
+                            if not texto_revisado or texto_revisado == "REVISAO_INSEGURA":
+                                adicionar_log_esp32("ERRO", f"Revisao insegura no exercicio {numero}; audio bloqueado.")
+                                atualizar_status_ia("ERRO", "🔴 REVISÃO INSEGURA", "A resolução não passou pela revisão; áudio não enviado.")
+                                return
+                            resolucao = texto_revisado
 
                         if eh_objetiva:
                             import re
