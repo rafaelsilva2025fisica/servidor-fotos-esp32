@@ -57,6 +57,7 @@ nome_foto_sessao_atual = None
 quantidade_exercicios_sessao = 0
 gabarito_rapido_disponivel = False
 texto_ultimo_gabarito = None
+audios_exercicios_sessao = {}  # indice da opcao -> ID do WAV gerado nesta foto
 
 # Material-base opcional para a resolução dos exercícios do submenu.
 # Também pode ser definido no Render por MATERIAL_BASE_FILE_ID.
@@ -2608,29 +2609,39 @@ def quantidade_por_extenso(numero):
 
 
 def texto_menu_exercicios(exercicios, incluir_gabarito=False, repetir_gabarito=False):
+    """Menu compacto, sempre com as mesmas posicoes de clique da foto."""
     partes = []
     for posicao, exercicio in enumerate(exercicios, start=1):
-        numero_real = str(exercicio.get("numero", posicao)).strip()
-        vezes = quantidade_por_extenso(posicao)
-        termo = "vez" if posicao == 1 else "vezes"
-        partes.append(
-            f"Para ouvir a resolução do exercício {numero_real}, aperte {vezes} {termo} o botão."
-        )
+        numero = str(exercicio.get("numero", posicao)).strip()
+        partes.append(f"{quantidade_por_extenso(posicao).capitalize()} {'clique' if posicao == 1 else 'cliques'} para o exercício {numero}.")
     if incluir_gabarito:
         posicao = len(exercicios) + 1
-        vezes = quantidade_por_extenso(posicao)
-        termo = "vez" if posicao == 1 else "vezes"
-        partes.append(f"Para ouvir o gabarito rápido de todos os exercícios, aperte {vezes} {termo} o botão.")
+        partes.append(f"{quantidade_por_extenso(posicao).capitalize()} cliques para o gabarito rápido.")
     if incluir_gabarito and repetir_gabarito:
         posicao = len(exercicios) + 2
-        vezes = quantidade_por_extenso(posicao)
-        termo = "vez" if posicao == 1 else "vezes"
-        partes.append(f"Para ouvir novamente o gabarito rápido, aperte {vezes} {termo} o botão.")
-    partes.append(
-        "Depois deste áudio, você terá quinze segundos para escolher. "
-        "Se não apertar o botão, a sessão será encerrada."
-    )
+        partes.append(f"{quantidade_por_extenso(posicao).capitalize()} cliques para repetir o gabarito.")
+    partes.append("Zero cliques, ou não apertar o botão durante quinze segundos, encerra a sessão.")
     return " ".join(partes)
+
+
+def reenviar_audio_da_sessao(audio_id):
+    """Reaproveita WAV e ID já existentes, sem consultar IA/TTS."""
+    global aguardando_resposta_menu
+    with lock:
+        dados = audios.get(audio_id)
+        socket = esp_ws
+    if not dados or not os.path.isfile(dados.get("arquivo", "")) or socket is None:
+        return False
+    try:
+        socket.send("NOVO_AUDIO_MENU|" + audio_id)
+        with lock:
+            aguardando_resposta_menu = True
+        atualizar_status_ia("AUDIO_ENVIADO", "📤 REPETINDO EXERCÍCIO", "Reutilizando WAV anterior da sessão.")
+        adicionar_log_esp32("OK", f"Reutilizando WAV {audio_id}; sem IA nem TTS.")
+        return True
+    except Exception as erro:
+        adicionar_log_esp32("ERRO", f"Falha repetindo WAV {audio_id}: {erro}")
+        return False
 
 
 def preparar_texto_para_tts(texto):
@@ -2768,7 +2779,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
             with lock:
                 aguardando_resposta_menu = True
 
-        return True
+        return audio_id
 
     except Exception as erro:
         print(">>> ERRO CRIANDO/ENVIANDO AUDIO DA IA:", repr(erro), flush=True)
@@ -2782,7 +2793,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
 # =========================================================
 
 def analisar_foto_nova_com_ia(caminho, nome):
-    global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel, texto_ultimo_gabarito
+    global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel, texto_ultimo_gabarito, audios_exercicios_sessao
 
     if openai_client is None:
         print(">>> IA NAO CONFIGURADA: OPENAI_API_KEY AUSENTE <<<", flush=True)
@@ -2882,6 +2893,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
             # A transcrição serve apenas para contar/montar o menu.
             # A resolução usará novamente a FOTO ORIGINAL.
             exercicios_atuais = exercicios
+            audios_exercicios_sessao.clear()
             foto_sessao_atual = caminho
             nome_foto_sessao_atual = nome
             quantidade_exercicios_sessao = quantidade
@@ -3217,6 +3229,7 @@ def websocket_esp32(ws):
                 if quantidade <= 0:
                     with lock:
                         exercicios_atuais.clear()
+                        audios_exercicios_sessao.clear()
                         texto_ultimo_gabarito = None
                         foto_sessao_atual = None
                         nome_foto_sessao_atual = None
@@ -3326,6 +3339,11 @@ def websocket_esp32(ws):
 
                 numero_real = str(exercicio_escolhido.get("numero", quantidade)).strip()
 
+                with lock:
+                    id_em_cache = audios_exercicios_sessao.get(quantidade)
+                if id_em_cache and reenviar_audio_da_sessao(id_em_cache):
+                    continue
+
                 adicionar_log_esp32(
                     "OK",
                     f"Opção {quantidade} selecionada; corresponde ao exercício {numero_real}. IA relendo diretamente a foto original."
@@ -3336,7 +3354,7 @@ def websocket_esp32(ws):
                     "Estou relendo a foto original e preparando a resolução guiada."
                 )
 
-                def resolver_exercicio_guiado_da_foto(numero, caminho_imagem, nome_imagem, opcoes_exercicios):
+                def resolver_exercicio_guiado_da_foto(numero, caminho_imagem, nome_imagem, opcoes_exercicios, indice_opcao):
                     try:
                         with open(caminho_imagem, "rb") as arquivo:
                             imagem_b64 = base64.b64encode(arquivo.read()).decode("ascii")
@@ -3580,16 +3598,21 @@ def websocket_esp32(ws):
                             # O campo enunciado extraido pode conter alternativas; retira-as da leitura.
                             pergunta = re.split(r"(?im)(?:^|\n)\s*(?:alternativas\s*:\s*)?(?:[A-E]\s*[)\.\-:]\s+)", enunciado_exercicio, maxsplit=1)[0].strip()
                             texto_final = (f"Exercício {numero}. {pergunta}. " if pergunta else f"Exercício {numero}. ")
-                            texto_final += f"Resposta correta é a letra {letra}. {texto_alternativa}."
+                            texto_final += f"Resposta correta é a letra {letra}. {texto_alternativa}. "
+                            texto_final += "Agora escolha outro exercício, ou repita este. " + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito, repetir_gabarito=bool(texto_ultimo_gabarito))
                         else:
                             abertura_audio = (f"Exercício {numero}. Enunciado: {enunciado_exercicio}. "
                                               if enunciado_exercicio else f"Exercício {numero}. ")
                             texto_final = (abertura_audio + "Resolução. " + resolucao + " "
                                            "Agora você pode escolher novamente. "
                                            + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito, repetir_gabarito=bool(texto_ultimo_gabarito)))
-                        # menu=True preserva a selecao por cliques apos o audio,
-                        # mesmo quando a questao objetiva nao repete as instrucoes faladas.
-                        if not criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=velocidade_audio):
+                        # Todo áudio de exercício já termina com o menu da mesma foto.
+                        # O mesmo índice de clique sempre escolhe o mesmo exercício.
+                        audio_gerado = criar_e_enviar_audio_ia(texto_final, menu=True, velocidade=velocidade_audio)
+                        if audio_gerado:
+                            with lock:
+                                audios_exercicios_sessao[indice_opcao] = audio_gerado
+                        else:
                             atualizar_status_ia("ERRO", "🔴 FALHA NO ÁUDIO", "Não foi possível enviar a resposta à ESP32.")
 
                     except Exception as erro:
@@ -3602,7 +3625,7 @@ def websocket_esp32(ws):
 
                 threading.Thread(
                     target=resolver_exercicio_guiado_da_foto,
-                    args=(numero_real, caminho_foto, nome_foto, opcoes_exercicios),
+                    args=(numero_real, caminho_foto, nome_foto, opcoes_exercicios, quantidade),
                     daemon=True
                 ).start()
 
