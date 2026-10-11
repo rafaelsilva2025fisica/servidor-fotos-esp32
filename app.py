@@ -1780,7 +1780,7 @@ def enviar_audio():
     # =====================================================
     # WEBM -> WAV PCM
     #
-    # 16000 Hz
+    # 8000 Hz
     # mono
     # PCM signed 16-bit little endian
     # =====================================================
@@ -1796,7 +1796,7 @@ def enviar_audio():
             "-acodec",
             "pcm_s16le",
             "-ar",
-            "16000",
+            "8000",
             "-ac",
             "1",
             caminho_wav
@@ -1883,7 +1883,7 @@ def enviar_audio():
     )
 
     print(
-        "FORMATO: PCM 16-bit / 16000 Hz / mono",
+        "FORMATO: PCM 16-bit / 8000 Hz / mono",
         flush=True
     )
 
@@ -1950,8 +1950,8 @@ def enviar_audio():
         "ok": True,
         "audio_id": audio_id,
         "formato": "wav_pcm_s16le",
-        "sample_rate": 16000,
-        "canais": 2,
+        "sample_rate": 8000,
+        "canais": 1,
         "tamanho": tamanho_wav
     })
 
@@ -2690,7 +2690,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
             "-i", caminho_mp3,
             "-vn",
             "-acodec", "pcm_s16le",
-            "-ar", "16000",
+            "-ar", "8000",
             "-ac", "1",
             caminho_wav
         ]
@@ -2748,7 +2748,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
         print("ID:", audio_id, flush=True)
         print("WAV:", caminho_wav, flush=True)
         print("TAMANHO:", tamanho_wav, "bytes", flush=True)
-        print("FORMATO: PCM 16-bit / 16000 Hz / mono", flush=True)
+        print("FORMATO: PCM 16-bit / 8000 Hz / mono", flush=True)
         print("SERVIDOR -> ESP32:", comando, flush=True)
         print("================================", flush=True)
 
@@ -3396,7 +3396,25 @@ def websocket_esp32(ws):
                                             "A pessoa quer apenas ouvir exatamente o que deve escrever, linha por linha. "
 
                                             f"Comece dizendo somente: 'Exercício {numero}. Guia de escrita.' "
+                                            "Para exercícios com integrais, siga obrigatoriamente esta ordem: primeiro os LIMITES JÁ DETERMINADOS, depois a INTEGRAL MONTADA COMPLETA, e somente depois a RESOLUÇÃO linha por linha e a RESPOSTA FINAL. "
+                                            "Não explique longamente como os limites foram obtidos. Dite diretamente as desigualdades corretas de cada variável, uma por linha, por exemplo: zero menor ou igual a x, menor ou igual a três. Próxima linha. Quatro menor ou igual a y, menor ou igual a seis. "
+                                            "Quando os limites dependerem de outra variável, diga a expressão exata e não invente limites constantes. Quando houver mudança para polares ou cilíndricas, diga as relações indispensáveis e o jacobiano de modo breve, e então os limites na nova coordenada. "
+                                            "Depois anuncie: Integral montada completa. Dite de uma só vez a expressão integral inteira, todos os símbolos de integração e seus limites, integrando e diferenciais, com a ordem de integração correta. Somente quando terminar essa integral completa comece as etapas de resolução. "
                                             "Depois dite a resolução na ordem exata em que deve ser escrita no caderno. "
+                                            "SEPARAÇÃO OBRIGATÓRIA DE EXPRESSÕES: a pessoa está ouvindo e copiando, sem ver a resposta. "
+                                            "Nunca dite duas igualdades, fórmulas, substituições ou relações independentes coladas na mesma frase. "
+                                            "Para cada expressão independente, diga primeiro 'Na linha de baixo, escreva:' e depois dite UMA expressão completa. "
+                                            "Ao terminar essa expressão, encerre a frase com ponto final e anuncie 'Próxima linha.' antes da seguinte. "
+                                            "Se dois termos precisarem ficar na MESMA linha, diga explicitamente 'na mesma linha, deixe um espaço e escreva' "
+                                            "ou 'na mesma linha, escreva vírgula, deixe um espaço e escreva', conforme a notação correta. "
+                                            "Não fale 'pular espaço' de modo ambíguo: diga 'deixe um espaço' para espaço horizontal "
+                                            "e 'próxima linha' para começar outra linha no caderno. "
+                                            "Exemplo obrigatório de mudança para coordenadas cilíndricas: "
+                                            "'Mudança para coordenadas cilíndricas. Na linha de baixo, escreva: x igual a erre vezes cosseno de teta. "
+                                            "Próxima linha. Escreva: y igual a erre vezes seno de teta. "
+                                            "Próxima linha. Escreva: z igual a zê.' "
+                                            "A mesma separação vale para dados, domínio, limites, identidades, jacobiano, resultados parciais e respostas. "
+                                            "Use pausas naturais por pontuação, mas não dependa apenas de pausas do sintetizador: fale os comandos de escrita. "
                                             "Cada nova linha deve ser COMPLETA e AUTOSSUFICIENTE. "
                                             "Nunca mande lembrar ou manter uma parte da linha anterior. "
                                             "Se uma integral continuar na próxima linha, dite a integral inteira novamente, com limites, expressão e diferencial. "
@@ -3439,7 +3457,7 @@ def websocket_esp32(ws):
                                             "O 'del' é somente uma convenção de pronúncia do áudio, não altera a escrita dr, dθ, dz etc. "
                                             "Fale expoentes como 'x ao quadrado', 'y ao cubo' e assim por diante. "
 
-                                            "INTEGRAIS: dite primeiro a integral montada completa e depois cada linha da resolução pronta. "
+                                            "INTEGRAIS: antes de montar a integral, dite os limites prontos e concisos, sem demonstrar sua dedução; em seguida dite a integral montada completa; por último, cada linha da resolução pronta. "
                                             "Para CADA símbolo de integral, anuncie 'integral, limite inferior [valor], limite superior [valor]', "
                                             "respeitando a ordem em que as integrais são escritas. Não use a palavra 'de' para introduzir o integrando. "
                                             "Após anunciar TODAS as integrais e respectivos limites, diga sempre 'abra parêntese. Expressão interna: [integrando]. Feche parêntese.' "
@@ -3470,6 +3488,8 @@ def websocket_esp32(ws):
                                             "a aplicação da fórmula e a integral restante. "
                                             "Para identidades, dite a igualdade exata utilizada antes da expressão transformada. "
                                             "Para frações parciais, dite a decomposição e os coeficientes necessários. "
+                                            "Na mudança de coordenadas, anuncie cada relação em uma linha distinta, "
+                                            "sem juntar x, y, z, jacobiano ou limites na mesma fala. "
                                             "Para mudanças de coordenadas, dite as relações de transformação, "
                                             "o jacobiano e os limites da nova região. "
                                             "Se houver técnica dentro de outra, identifique cada uma na ordem correta. "
