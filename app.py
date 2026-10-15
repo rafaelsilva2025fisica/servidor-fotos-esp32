@@ -3025,21 +3025,81 @@ def analisar_foto_nova_com_ia(caminho, nome):
 # RESOLUÇÕES AUTOMÁTICAS - GALERIA INDEPENDENTE
 # =========================================================
 
+def _partes_matematicas(linha):
+    """Separa integrais INT{inferior}{superior} sem confundir y² e 1."""
+    partes = []
+    pos = 0
+    while pos < len(linha):
+        inicio = linha.find("INT{", pos)
+        if inicio < 0:
+            partes.append(("texto", linha[pos:]))
+            break
+        if inicio > pos:
+            partes.append(("texto", linha[pos:inicio]))
+        cursor = inicio + 3
+        limites = []
+        for _ in range(2):
+            if cursor >= len(linha) or linha[cursor] != "{":
+                break
+            profundidade = 1
+            começo = cursor + 1
+            cursor += 1
+            while cursor < len(linha) and profundidade:
+                if linha[cursor] == "{":
+                    profundidade += 1
+                elif linha[cursor] == "}":
+                    profundidade -= 1
+                cursor += 1
+            if profundidade:
+                break
+            limites.append(linha[começo:cursor-1])
+        if len(limites) == 2:
+            partes.append(("integral", limites))
+            pos = cursor
+        else:
+            partes.append(("texto", linha[inicio:inicio+4]))
+            pos = inicio + 4
+    return partes
+
+
 def _svg_resolucao(titulo, conteudo):
-    """Gera imagem SVG legível sem instalar bibliotecas adicionais."""
+    """SVG com limites de integração posicionados em cima e embaixo."""
+    largura, margem, passo = 1200, 55, 44
     linhas = []
     for paragrafo in conteudo.splitlines():
         if not paragrafo.strip():
             linhas.append("")
+        elif "INT{" in paragrafo:
+            # Nunca quebrar uma fórmula dentro dos limites de integração.
+            linhas.append(paragrafo.strip())
         else:
-            linhas.extend(textwrap.wrap(paragrafo, width=78, break_long_words=True,
+            linhas.extend(textwrap.wrap(paragrafo, width=82,
+                                        break_long_words=False,
                                         break_on_hyphens=False) or [""])
     linhas = linhas[:360]
-    largura, margem, passo = 1120, 55, 30
-    altura = max(360, 170 + len(linhas) * passo + 65)
-    elementos = [f'<text x="{margem}" y="83" font-size="36" font-weight="bold" fill="#e8f0ff">{html.escape(titulo)}</text>']
+    altura = max(360, 180 + len(linhas) * passo + 65)
+    elementos = [f'<text x="{margem}" y="85" font-size="36" font-weight="bold" fill="#e8f0ff">{html.escape(titulo)}</text>']
     for i, linha in enumerate(linhas):
-        elementos.append(f'<text x="{margem}" y="{150+i*passo}" font-size="23" fill="#e2e8f0">{html.escape(linha)}</text>')
+        y = 155 + i * passo
+        if "INT{" not in linha:
+            elementos.append(f'<text x="{margem}" y="{y}" font-size="24" fill="#e2e8f0">{html.escape(linha)}</text>')
+            continue
+        x = float(margem)
+        for tipo, valor in _partes_matematicas(linha):
+            if tipo == "texto":
+                if not valor:
+                    continue
+                elementos.append(f'<text x="{x:.1f}" y="{y}" font-size="24" fill="#e2e8f0">{html.escape(valor)}</text>')
+                # Estimativa conservadora; funciona sem instalar fontes/pacotes.
+                x += sum(7 if c in " il.,:;()" else 14 if c in "MW" else 12.8 for c in valor)
+            else:
+                inferior, superior = valor
+                # O símbolo integral e seus limites ocupam um bloco independente.
+                elementos.append(f'<text x="{x:.1f}" y="{y+5}" font-size="48" fill="#e2e8f0">∫</text>')
+                lx = x + 29
+                elementos.append(f'<text x="{lx:.1f}" y="{y-17}" font-size="17" fill="#e2e8f0">{html.escape(superior)}</text>')
+                elementos.append(f'<text x="{lx:.1f}" y="{y+19}" font-size="17" fill="#e2e8f0">{html.escape(inferior)}</text>')
+                x += 42 + max(len(inferior), len(superior)) * 10
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{largura}" height="{altura}" '
             f'viewBox="0 0 {largura} {altura}"><rect width="100%" height="100%" fill="#101827"/>'
             + ''.join(elementos) + '</svg>')
@@ -3075,7 +3135,11 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
                                 "Mostre fórmulas, substituições e resposta final. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
-                                "Use texto simples com símbolos matemáticos Unicode, sem Markdown ou LaTeX."
+                                "Escreva em texto simples, sem Markdown ou LaTeX. REGRA OBRIGATÓRIA: "
+                                "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
+                                "por exemplo INT{y²}{1} INT{0}{1−x} 1 dz dx. "
+                                "NUNCA use integrais com limites Unicode colados, como ∫ᵧ²¹. "
+                                "Coloque fórmulas longas em linhas separadas. Use ², ³ e frações como (a)/(b)."
                             )},
                             {"type": "input_image", "image_url": "data:image/jpeg;base64," + foto_b64}
                         ]}]
