@@ -6,6 +6,8 @@ import time
 import os
 import base64
 import uuid
+import textwrap
+import html
 import subprocess
 import imageio_ffmpeg
 from datetime import datetime
@@ -19,6 +21,15 @@ app = Flask(__name__)
 PASTA_GALERIA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "galeria")
 os.makedirs(PASTA_GALERIA, exist_ok=True)
 sock = Sock(app)
+
+# Galeria adicional de resoluções (independente da galeria de fotos).
+PASTA_RESOLUCOES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "galeria_resolucoes")
+os.makedirs(PASTA_RESOLUCOES, exist_ok=True)
+resolucoes_jobs = {}
+resolucoes_lock = threading.Lock()
+resolucoes_semaforo = threading.Semaphore(1)  # evita vários lotes simultâneos
+GERAR_RESOLUCOES_AUTOMATICAS = os.environ.get("GERAR_RESOLUCOES_AUTOMATICAS", "1") == "1"
+
 
 # =========================================================
 # CONFIGURAÇÃO
@@ -755,6 +766,7 @@ audio {
         <button id="galeria">
             🖼️ GALERIA
         </button>
+        <button id="abrirResolucoes" style="background:#0e7490;color:white;">📐 GALERIA DE RESOLUÇÕES</button>
 
         <button id="resetLimpo">
             🧹 RESET LIMPO
@@ -797,6 +809,15 @@ audio {
             <button id="fecharGaleria">FECHAR</button>
         </div>
         <div id="galeriaGrid" class="galeria-grid"></div>
+    </div>
+</div>
+
+<div id="resolucoesModal" class="galeria-modal">
+    <div class="galeria-caixa">
+        <div class="galeria-topo"><h2>📐 Resoluções automáticas</h2>
+            <button id="fecharResolucoes" style="background:#30363d;color:white;">FECHAR</button></div>
+        <div id="resolucoesEstado" style="color:#8b949e;margin-bottom:14px;"></div>
+        <div id="resolucoesGrid" class="galeria-grid"></div>
     </div>
 </div>
 
@@ -1018,6 +1039,42 @@ const audiosGrid = document.getElementById("audiosGrid");
 const fecharAudios = document.getElementById("fecharAudios");
 const apagarTodosAudios = document.getElementById("apagarTodosAudios");
 
+
+// Galeria adicional: isolada das fotos e do fluxo de áudio.
+const resolucoesModal = document.getElementById("resolucoesModal");
+let atualizadorResolucoes = null;
+async function carregarResolucoes() {
+    try {
+        const r = await fetch("/api/resolucoes?t=" + Date.now(), {cache:"no-store"});
+        const dados = await r.json();
+        if (!r.ok) throw new Error("Falha ao consultar resoluções");
+        const grid = document.getElementById("resolucoesGrid");
+        grid.replaceChildren();
+        (dados.imagens || []).forEach(item => {
+            const card = document.createElement("div"); card.className = "foto-card";
+            const a = document.createElement("a"); a.href = item.url; a.target = "_blank"; a.rel = "noopener";
+            const img = document.createElement("img"); img.src = item.url; img.alt = item.nome;
+            a.appendChild(img); card.appendChild(a);
+            const info = document.createElement("div"); info.className = "foto-info"; info.textContent = item.nome;
+            card.appendChild(info); grid.appendChild(card);
+        });
+        if (!dados.imagens || !dados.imagens.length) grid.textContent = "Ainda não há resoluções prontas.";
+        const ativos = (dados.jobs || []).filter(j => j.estado !== "concluido");
+        document.getElementById("resolucoesEstado").textContent = ativos.length
+            ? "⏳ Gerando imagens: " + ativos.map(j => j.concluidos + "/" + j.total).join(", ")
+            : "Resoluções disponíveis: " + (dados.imagens || []).length;
+    } catch(e) { document.getElementById("resolucoesEstado").textContent = "Erro: " + e.message; }
+}
+document.getElementById("abrirResolucoes").onclick = function() {
+    resolucoesModal.classList.add("aberta"); carregarResolucoes();
+    atualizadorResolucoes = setInterval(carregarResolucoes, 4000);
+};
+document.getElementById("fecharResolucoes").onclick = function() {
+    resolucoesModal.classList.remove("aberta"); clearInterval(atualizadorResolucoes);
+};
+resolucoesModal.onclick = function(e) {
+    if (e.target === resolucoesModal) document.getElementById("fecharResolucoes").click();
+};
 
 // ======================================================
 // STATUS ESP32
@@ -2952,10 +3009,113 @@ def analisar_foto_nova_com_ia(caminho, nome):
 
         criar_e_enviar_audio_ia(texto_menu, menu=True, velocidade=1.4)
 
+        # Recurso EXTRA: só inicia depois do fluxo principal preparar o menu.
+        # Não altera status_ia, esp_ws, áudios nem variáveis da sessão.
+        if GERAR_RESOLUCOES_AUTOMATICAS:
+            iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios)
+
+
     except Exception as erro:
         print(">>> ERRO NA ANALISE DA IA:", repr(erro), flush=True)
         adicionar_log_esp32("ERRO", f"Falha da IA ao analisar {nome}: {erro}")
         atualizar_status_ia("ERRO", "🔴 ERRO NA IA", "Falha durante a análise da foto. Consulte os logs.")
+
+
+# =========================================================
+# RESOLUÇÕES AUTOMÁTICAS - GALERIA INDEPENDENTE
+# =========================================================
+
+def _svg_resolucao(titulo, conteudo):
+    """Gera imagem SVG legível sem instalar bibliotecas adicionais."""
+    linhas = []
+    for paragrafo in conteudo.splitlines():
+        if not paragrafo.strip():
+            linhas.append("")
+        else:
+            linhas.extend(textwrap.wrap(paragrafo, width=78, break_long_words=True,
+                                        break_on_hyphens=False) or [""])
+    linhas = linhas[:360]
+    largura, margem, passo = 1120, 55, 30
+    altura = max(360, 170 + len(linhas) * passo + 65)
+    elementos = [f'<text x="{margem}" y="83" font-size="36" font-weight="bold" fill="#e8f0ff">{html.escape(titulo)}</text>']
+    for i, linha in enumerate(linhas):
+        elementos.append(f'<text x="{margem}" y="{150+i*passo}" font-size="23" fill="#e2e8f0">{html.escape(linha)}</text>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{largura}" height="{altura}" '
+            f'viewBox="0 0 {largura} {altura}"><rect width="100%" height="100%" fill="#101827"/>'
+            + ''.join(elementos) + '</svg>')
+
+
+def iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios):
+    if openai_client is None or not exercicios:
+        return
+    job_id = uuid.uuid4().hex[:12]
+    with resolucoes_lock:
+        resolucoes_jobs[job_id] = {"foto": nome, "estado": "aguardando", "total": len(exercicios), "concluidos": 0}
+    threading.Thread(target=_gerar_resolucoes_extras,
+                     args=(job_id, caminho, nome, [dict(e) for e in exercicios]), daemon=True).start()
+
+
+def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
+    # Não mexer nas variáveis globais da sessão principal.
+    with resolucoes_semaforo:
+        with resolucoes_lock:
+            resolucoes_jobs[job_id]["estado"] = "processando"
+        try:
+            with open(caminho, "rb") as f:
+                foto_b64 = base64.b64encode(f.read()).decode("ascii")
+            for i, exercicio in enumerate(exercicios, 1):
+                numero = str(exercicio.get("numero", i))
+                enunciado = str(exercicio.get("enunciado", ""))
+                try:
+                    resposta = openai_client.responses.create(
+                        model=OPENAI_MODEL,
+                        input=[{"role": "user", "content": [
+                            {"type": "input_text", "text": (
+                                "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
+                                "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
+                                "Mostre fórmulas, substituições e resposta final. "
+                                "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
+                                "Use texto simples com símbolos matemáticos Unicode, sem Markdown ou LaTeX."
+                            )},
+                            {"type": "input_image", "image_url": "data:image/jpeg;base64," + foto_b64}
+                        ]}]
+                    )
+                    conteudo = (resposta.output_text or "").strip()
+                    if not conteudo:
+                        raise ValueError("A IA retornou resolução vazia")
+                    nome_svg = f'{os.path.splitext(nome)[0]}__{i:02d}_{uuid.uuid4().hex[:6]}.svg'
+                    svg = _svg_resolucao(f'Exercício {numero}', conteudo)
+                    with open(os.path.join(PASTA_RESOLUCOES, nome_svg), "w", encoding="utf-8") as f:
+                        f.write(svg)
+                except Exception as erro:
+                    print(f'GALERIA RESOLUCOES: erro no exercício {numero}: {erro!r}', flush=True)
+                finally:
+                    with resolucoes_lock:
+                        resolucoes_jobs[job_id]["concluidos"] += 1
+        except Exception as erro:
+            print('GALERIA RESOLUCOES: falha no lote:', repr(erro), flush=True)
+        finally:
+            with resolucoes_lock:
+                resolucoes_jobs[job_id]["estado"] = "concluido"
+                # Limita histórico em RAM
+                while len(resolucoes_jobs) > 50:
+                    resolucoes_jobs.pop(next(iter(resolucoes_jobs)))
+
+
+@app.route("/api/resolucoes", methods=["GET"])
+def api_resolucoes():
+    arquivos = [n for n in os.listdir(PASTA_RESOLUCOES) if n.endswith(".svg")]
+    arquivos.sort(key=lambda n: os.path.getmtime(os.path.join(PASTA_RESOLUCOES, n)), reverse=True)
+    with resolucoes_lock:
+        jobs = list(resolucoes_jobs.values())[-10:]
+    return jsonify({"imagens": [{"nome": n, "url": "/resolucoes/" + n} for n in arquivos], "jobs": jobs})
+
+
+@app.route("/resolucoes/<path:nome>", methods=["GET"])
+def arquivo_resolucao(nome):
+    resposta = send_from_directory(PASTA_RESOLUCOES, nome, mimetype="image/svg+xml", as_attachment=False)
+    resposta.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
+    return resposta
 
 
 # =========================================================
