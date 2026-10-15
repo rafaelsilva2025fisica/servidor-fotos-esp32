@@ -3139,7 +3139,10 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
                                 "por exemplo INT{y²}{1} INT{0}{1−x} 1 dz dx. "
                                 "NUNCA use integrais com limites Unicode colados, como ∫ᵧ²¹. "
-                                "Coloque fórmulas longas em linhas separadas. Use ², ³ e frações como (a)/(b)."
+                                "Coloque fórmulas longas em linhas separadas. Use ², ³ e frações como (a)/(b). "
+                                "Na resposta final, escreva somente a expressão matemática e seu valor, "
+                                "sem acrescentar palavras como cubo, cúbico, unidades cúbicas ou traduções estrangeiras. "
+                                "Use exclusivamente português brasileiro no texto explicativo."
                             )},
                             {"type": "input_image", "image_url": "data:image/jpeg;base64," + foto_b64}
                         ]}]
@@ -3147,6 +3150,9 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                     conteudo = (resposta.output_text or "").strip()
                     if not conteudo:
                         raise ValueError("A IA retornou resolução vazia")
+                    # Remove sufixos de unidade redundantes em outros idiomas na resposta final.
+                    import re
+                    conteudo = re.sub(r"(?im)(?<=\d)\s+(?:куб(?:ических)?|cubic\s+units?)\s*$", "", conteudo)
                     nome_svg = f'{os.path.splitext(nome)[0]}__{i:02d}_{uuid.uuid4().hex[:6]}.svg'
                     svg = _svg_resolucao(f'Exercício {numero}', conteudo)
                     with open(os.path.join(PASTA_RESOLUCOES, nome_svg), "w", encoding="utf-8") as f:
