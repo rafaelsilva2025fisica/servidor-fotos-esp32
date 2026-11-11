@@ -2751,6 +2751,15 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
 
     try:
         atualizar_status_ia("CRIANDO_AUDIO", "🟠 CRIANDO ÁUDIO...", "A resposta da IA está pronta. Agora estou transformando o texto em voz.")
+        # A ESP32 enfileira o aviso local e o toca antes do download.
+        with lock:
+            socket_aviso = esp_ws
+        if socket_aviso is not None:
+            try:
+                socket_aviso.send("AVISO_CRIANDO_AUDIO")
+            except Exception as erro_aviso:
+                print("AVISO_CRIANDO_AUDIO nao entregue:", repr(erro_aviso), flush=True)
+
         adicionar_log_esp32("INFO", "Criando voz da resposta da IA...")
 
         resposta_audio = openai_client.audio.speech.create(
