@@ -3,9 +3,9 @@ from werkzeug.utils import secure_filename
 from flask_sock import Sock
 import threading
 import time
-import os 
+import os
 import base64
-import uuid 
+import uuid
 import textwrap
 import html
 import subprocess
@@ -3657,7 +3657,7 @@ def websocket_esp32(ws):
                         )
                         tipo_exercicio = (resposta_tipo.output_text or "ESCRITA").strip().upper()
                         eh_objetiva = "OBJETIVA" in tipo_exercicio
-                        velocidade_audio = 1.2 if eh_objetiva else 0.8
+                        velocidade_audio = 1.2 if eh_objetiva else 0.6
                         adicionar_log_esp32(
                             "INFO",
                             f"Exercício {numero}: {'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
