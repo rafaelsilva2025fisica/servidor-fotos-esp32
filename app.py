@@ -2951,7 +2951,7 @@ PADRAO_RESOLUCAO = (
     "Finalize com ∇·F = resultado final diretamente simplificado e ordenado "
     "(ex.: ∇·F = 2x + 2y + 2z), sem escrever antes a soma em outra ordem. "
     "Atenção: Fₓ sozinho NÃO é a derivada e Rₓ designa rotacional, nunca divergente. "
-    "Para exercícios de função potencial escalar, escreva OBRIGATORIAMENTE os títulos em linhas próprias e nesta ordem: 1. Integração em x; 2. Integração em y; 3. Verificação em z; Resultado final. " "Use o título geral Função potencial somente se não substituir esses quatro títulos. Adapte a variável da etapa se a integração começar por outra componente. "
+    "Para exercícios de função potencial escalar, escreva OBRIGATORIAMENTE os títulos em linhas próprias e nesta ordem: Passo Integração em x; Passo Integração em y; Passo Verificação em z; Resultado final. " "Use o título geral Função potencial somente se não substituir esses quatro títulos. Adapte a variável da etapa se a integração começar por outra componente. "
     "Nunca pule a operação de integração: após ∂φ/∂x = P, mostre φ = ∫(P) dx e só então a expressão integrada. "
     "Quando determinar g(y,z) a partir de ∂g/∂y = Q, mostre g(y,z) = ∫(Q) dy antes do resultado. "
     "Se houver integração em z, mostre a integral correspondente. Para integrais indefinidas, use ∫(expressão) dx, dy ou dz, sem INT{}{}. "
@@ -2962,7 +2962,7 @@ PADRAO_RESOLUCAO = (
     "Não omita sinais, limites, substituições essenciais nem resultados. "
     "Não use matrizes para rotacional se o cálculo direto for mais simples. "
     "Para integrais definidas, use INT{inferior}{superior} conforme o formato do servidor. "
-    "Retorne SOMENTE a resolução escrita."
+    "Nos títulos das etapas, nunca use números, enumeração, hífen ou travessão: escreva exatamente Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final (uma vez só no encerramento), adaptando as variáveis ao exercício. Retorne SOMENTE a resolução escrita."
 )
 
 EXEMPLO_APROVADO = (
@@ -3025,7 +3025,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
                 'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
-                'Inclua os títulos Rotacional e Divergente quando ambas as operações forem solicitadas. Para função potencial, separe OBRIGATORIAMENTE em 1. Integração em x, 2. Integração em y, 3. Verificação em z e Resultado final (adapte variáveis ao caso). Mostre cada integral indefinida explicitamente (por exemplo φ = ∫(2xy+z²) dx) ANTES do resultado integrado; mostre também g(y,z) = ∫(2yz) dy quando aplicável. Não pule integrais. '
+                'Inclua os títulos Rotacional e Divergente quando ambas as operações forem solicitadas. Para função potencial, separe OBRIGATORIAMENTE em Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final (adapte variáveis ao caso). Mostre cada integral indefinida explicitamente (por exemplo φ = ∫(2xy+z²) dx) ANTES do resultado integrado; mostre também g(y,z) = ∫(2yz) dy quando aplicável. Não pule integrais. '
                 'No rotacional, cada componente simples deve ter apenas a linha com as duas derivadas '
                 'e a linha seguinte com os resultados e a subtração, sem derivadas individuais. '
                 'No divergente, use ∂Fₓ/∂x = parcelas = resultado (ex.: 2y + 0 = 2y), ∂Fᵧ/∂y e ∂F_z/∂z analogamente; mostre os termos nulos. Não use parênteses em torno de Fₓ, Fᵧ ou F_z: nunca ∂(Fₓ)/∂x. Resultado ∇·F diretamente ordenado, sem repetir soma desordenada. Não confunda com Rₓ do rotacional. '
@@ -3359,7 +3359,7 @@ def _latex_para_imagem(escrita, titulo, destino):
         'delimitadores $ ou \\[. '
         'Mathtext do matplotlib será usado, portanto produza comandos simples. '
         'Não agrupe operações de linhas distintas. '
-        'Preserve como TXT os quatro títulos 1. Integração em x, 2. Integração em y, 3. Verificação em z e Resultado final, quando presentes; não transforme títulos em MAT. Preserve TODAS as linhas de integração, incluindo integrais indefinidas ∫(expressão) dx, dy ou dz, usando o comando int no LaTeX. Preserve o título Função potencial como TXT. '
+        'Nunca numere títulos de etapas e não use hífen ou travessão após Passo. Preserve como TXT os quatro títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, quando presentes; não transforme títulos em MAT. Preserve TODAS as linhas de integração, incluindo integrais indefinidas ∫(expressão) dx, dy ou dz, usando o comando int no LaTeX. Preserve o título Função potencial como TXT. '
         'Em derivadas de componentes, represente F_x, F_y, F_z diretamente no numerador: '
         r'use \frac{\partial F_x}{\partial x}, NUNCA \frac{\partial(F_x)}{\partial x}; '
         'não adicione parênteses que não existam no texto original. '
@@ -3376,6 +3376,18 @@ def _latex_para_imagem(escrita, titulo, destino):
             itens.append(('math', linha[4:].strip().strip('$')))
         elif linha.startswith('TXT:'):
             itens.append(('text', linha[4:].strip()))
+    # Remove enumeração automática dos títulos de etapas no PNG.
+    # Não altera expressões matemáticas nem números de exercícios.
+    import re as _re_cabecalhos
+    itens = [
+        (tp, _re_cabecalhos.sub(r'^\s*(?:\d+\s*[.)]\s*|Passo\s*[-–—:]\s*)',
+                                 lambda m: 'Passo ' if m.group(0).lstrip().lower().startswith('passo') else 'Passo ',
+                                 vl, count=1) if tp == 'text' and
+         _re_cabecalhos.match(r'^\s*(?:\d+\s*[.)]\s*|Passo\s*[-–—:]\s*)', vl) and
+         _re_cabecalhos.search(r'integração|integracao|verificação|verificacao|substituição|substituicao|simplificação|simplificacao|aplicação|aplicacao', vl, _re_cabecalhos.I)
+         else vl)
+        for tp, vl in itens
+    ]
     if not itens:
         raise ValueError('Conversão matemática sem linhas válidas.')
     # Título obrigatório na imagem quando a resolução realmente calcula potencial.
@@ -3411,9 +3423,9 @@ def _latex_para_imagem(escrita, titulo, destino):
         # Isso impede títulos duplicados ou fora de ordem.
         limpos = [(tp, vl) for tp, vl in itens if _etapa_textual(tp, vl) is None]
         titulos = {
-            1: '1. Integração em x',
-            2: '2. Integração em y',
-            3: '3. Verificação em z',
+            1: 'Passo Integração em x',
+            2: 'Passo Integração em y',
+            3: 'Passo Verificação em z',
             4: 'Resultado final',
         }
 
@@ -3566,7 +3578,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, quando solicitadas. Para função potencial, divida a resolução com os títulos 1. Integração em x, 2. Integração em y, 3. Verificação em z e Resultado final, adaptando variáveis conforme necessário. Ao integrar, escreva explicitamente φ = ∫(expressão) dx antes do resultado integrado; faça o mesmo para g(y,z) = ∫(expressão) dy e integrais seguintes quando necessárias. Nunca pule a integral que gera uma função. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
+                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, quando solicitadas. Para função potencial, divida a resolução com os títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, adaptando variáveis conforme necessário. Ao integrar, escreva explicitamente φ = ∫(expressão) dx antes do resultado integrado; faça o mesmo para g(y,z) = ∫(expressão) dy e integrais seguintes quando necessárias. Nunca pule a integral que gera uma função. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Não numere títulos nem use traços entre Passo e a descrição; escreva Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final uma única vez no encerramento quando aplicável. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
                                 "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
