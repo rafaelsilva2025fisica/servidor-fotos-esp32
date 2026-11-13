@@ -3995,7 +3995,7 @@ def websocket_esp32(ws):
 
                     with lock:
 
-                        if audio_id in audios and audios[audio_id].get("cancelado_reset"):
+                        if audio_id not in audios or audios[audio_id].get("cancelado_reset"):
                             continue
                         if audio_id in audios:
 
@@ -4020,19 +4020,27 @@ def websocket_esp32(ws):
                         )
 
             # AUDIO TERMINOU DE SER REPRODUZIDO NA ESP32
+            # Funciona tanto na confirmacao direta (Bluetooth persistente)
+            # quanto na confirmacao enviada apos reinicializacao (firmware antigo).
             elif mensagem.startswith("AUDIO_REPRODUZIDO|"):
                 partes = mensagem.split("|", 1)
                 audio_id = partes[1].strip() if len(partes) == 2 else ""
 
                 with lock:
                     dados_audio = audios.get(audio_id)
-                    if dados_audio is not None and dados_audio.get("cancelado_reset"):
+                    # Sem reinicializacao, a placa pode confirmar diretamente.
+                    # Nunca liberar a sessao por um ID antigo/desconhecido.
+                    if dados_audio is None or dados_audio.get("cancelado_reset"):
+                        adicionar_log_esp32("AVISO", f"Confirmacao ignorada: audio desconhecido ou cancelado {audio_id}.")
                         continue
-                    eh_menu = bool(dados_audio.get("menu", False)) if dados_audio else False
-
-                    if dados_audio is not None:
-                        dados_audio["reproduzido"] = True
-                        dados_audio["reproduzido_em"] = time.time()
+                    if dados_audio.get("reproduzido"):
+                        adicionar_log_esp32("INFO", f"Confirmacao duplicada ignorada: {audio_id}.")
+                        continue
+                    eh_menu = bool(dados_audio.get("menu", False))
+                    dados_audio["reproduzido"] = True
+                    dados_audio["reproduzido_em"] = time.time()
+                    dados_audio["recebido"] = True
+                    dados_audio["tentativas_recuperacao"] = 0
 
                 adicionar_log_esp32(
                     "OK",
