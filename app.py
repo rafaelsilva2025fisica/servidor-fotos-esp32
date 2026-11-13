@@ -2926,21 +2926,8 @@ os.makedirs(PASTA_TREINAMENTO, exist_ok=True)
 ARQUIVO_EXEMPLOS = os.path.join(PASTA_TREINAMENTO, "exemplos_aprovados.json")
 exemplos_lock = threading.RLock()
 
-REGRA_ESCOPO_ITENS = (
-    "REGRA PRIORITÁRIA DE ESCOPO: a identificação solicitada define EXATAMENTE o que resolver. "
-    "Se for 6b, resolva apenas a letra b do exercício 6; não resolva 6a, 6c ou outras letras. "
-    "Se for 6a, resolva apenas a letra a. Se for 6c, resolva apenas a letra c. "
-    "Esta regra vale para qualquer número e letra, inclusive questões com várias operações no enunciado geral. "
-    "Leia o enunciado completo para localizar a letra, mas NÃO execute operações de outras letras. "
-    "Se a letra pedir somente divergente, não calcule rotacional; se pedir somente rotacional, não calcule divergente. "
-    "Use resultados anteriores apenas se forem indispensáveis, sem refazer as contas anteriores. "
-    "Os exemplos fornecidos ensinam FORMATAÇÃO e DETALHAMENTO, jamais quais itens devem ser resolvidos. "
-    "Se a letra solicitada não estiver legível, informe a limitação em vez de resolver outra letra. "
-)
-
 PADRAO_RESOLUCAO = (
     "Resolva somente o exercício solicitado, em português brasileiro, com cálculos corretos. "
-    + REGRA_ESCOPO_ITENS + 
     "FORMATO DA RESOLUÇÃO ESCRITA: texto Unicode legível, sem LaTeX ou Markdown matemático. "
     "Use ², ³, ∂, ∇, ×, · e −. Escreva derivadas como ∂(expressão)/∂x. "
     "Comece diretamente pela substituição nas operações solicitadas, sem repetir fórmula geral abstrata. "
@@ -2980,7 +2967,7 @@ PADRAO_RESOLUCAO = (
 )
 
 EXEMPLO_APROVADO = (
-    "EXEMPLO EXCLUSIVAMENTE DE FORMATAÇÃO: contém duas operações apenas para ilustrar os estilos. NUNCA resolva ambas se a letra solicitada pedir só uma. NÃO COPIE RESULTADOS.\n"
+    "EXEMPLO DE ESTILO COMPACTO, NÃO COPIE RESULTADOS PARA OUTROS EXERCÍCIOS.\n"
     "Para F=(2xy+z², x²+2yz, 2xz+y²):\n"
     "Rotacional\n"
     "Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z\n"
@@ -3011,7 +2998,7 @@ def contexto_exemplos():
     exemplos = carregar_exemplos_aprovados()[-5:]
     if not exemplos:
         return EXEMPLO_APROVADO
-    blocos = [REGRA_ESCOPO_ITENS, EXEMPLO_APROVADO, "EXEMPLOS APROVADOS PELO USUÁRIO (somente referência de estilo; NÃO amplie o escopo nem copie resultados):"]
+    blocos = [EXEMPLO_APROVADO, "EXEMPLOS APROVADOS PELO USUÁRIO (referência de estilo, nunca copie resultados):"]
     for ex in exemplos:
         blocos.append("Resolução aprovada:\n" + ex['esperada'][:4000] +
                       "\nErro a evitar: " + ex.get('erro', '')[:1200])
@@ -3020,8 +3007,7 @@ def contexto_exemplos():
 def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     """Fluxo único para laboratório e exercícios escritos enviados pela ESP32."""
     conteudo = [{'type': 'input_text', 'text': (
-        f'Leia a imagem e resolva SOMENTE o item identificado por {numero}. Identificação exata: {numero}.\n' +
-        REGRA_ESCOPO_ITENS + '\n' +
+        f'Leia a imagem e resolva SOMENTE o exercício {numero}.\n' +
         PADRAO_RESOLUCAO + '\n\n' + contexto_exemplos())}]
     if arquivo_base_id:
         conteudo.append({'type':'input_file','file_id':arquivo_base_id})
@@ -3036,11 +3022,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     segunda = openai_client.responses.create(model=OPENAI_MODEL,
         input=[{'role':'user','content':[
             {'type':'input_text','text':(
-                f'ITEM EXATO SOLICITADO: {numero}. Revise SOMENTE esse item comparando-o à FOTO ORIGINAL. '
-                'Remova qualquer cálculo pertencente a outras letras, mesmo que apareça na resolução anterior. '
-                'Se a letra b pedir divergente, elimine inteiramente o rotacional da letra a. '
-                + REGRA_ESCOPO_ITENS + ' '
-                'Corrija erros matemáticos, '
+                'Revise esta resolução comparando-a à FOTO ORIGINAL. Corrija erros matemáticos, '
                 'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
                 'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
@@ -3600,8 +3582,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                         model=OPENAI_MODEL,
                         input=[{"role": "user", "content": [
                             {"type": "input_text", "text": (
-                                "Resolva APENAS o item identificado por " + numero + " da foto, passo a passo, em português. "
-                                + REGRA_ESCOPO_ITENS + " "
+                                "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 "REGRA DE ESCOPO: não repita resoluções de letras anteriores (a, b etc.), mesmo que estejam na mesma questão. "
                                 "Use resultados anteriores somente como dados, sem refazer rotacional, divergente ou encontrar novamente a função potencial. "
                                 "Se a letra pedir integral de linha de campo conservativo com função potencial conhecida, "
@@ -3628,25 +3609,6 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                     conteudo = (resposta.output_text or "").strip()
                     if not conteudo:
                         raise ValueError("A IA retornou resolução vazia")
-                    # Auditoria de escopo: confere a letra solicitada antes de criar a imagem.
-                    # O revisor pode remover operações de outras letras sem mudar o estilo.
-                    auditoria = openai_client.responses.create(
-                        model=OPENAI_MODEL,
-                        input=[{"role": "user", "content": [
-                            {"type": "input_text", "text": (
-                                f"ITEM EXATO: {numero}. Verifique a FOTO ORIGINAL e corrija a resolução abaixo. "
-                                + REGRA_ESCOPO_ITENS + " "
-                                "Remova totalmente operações de outras letras. Preserve cálculos corretos, "
-                                "formato Unicode, passos necessários, títulos e Resultado final uma única vez. "
-                                "Devolva SOMENTE a resolução corrigida, sem comentários.\n\n" + conteudo
-                            )},
-                            {"type": "input_image", "image_url": "data:image/jpeg;base64," + foto_b64}
-                        ]}]
-                    )
-                    conteudo_revisado = (auditoria.output_text or "").strip()
-                    if not conteudo_revisado:
-                        raise ValueError("Auditoria de escopo retornou resposta vazia")
-                    conteudo = conteudo_revisado
                     # Remove sufixos de unidade redundantes em outros idiomas na resposta final.
                     import re
                     conteudo = re.sub(r"(?im)(?<=\d)\s+(?:куб(?:ических)?|cubic\s+units?)\s*$", "", conteudo)
