@@ -3388,52 +3388,79 @@ def _latex_para_imagem(escrita, titulo, destino):
         if not tem_titulo:
             itens.insert(0, ('text', 'Função potencial'))
 
-    # Títulos das etapas de função potencial: o renderizador os insere mesmo
-    # se o modelo omitir os TXT na conversão para Mathtext.
+    # Organiza as etapas uma única vez, sem interpretar resultados
+    # intermediários como se fossem o resultado final.
     if potencial:
         import re as _re_etapas
-        def _norm_etapa(valor):
-            return _re_etapas.sub(r'\s+', '', valor.lower().replace('\\', ''))
 
-        def _tipo_etapa(tipo, valor):
-            t = _norm_etapa(valor)
-            if tipo == 'text':
-                if 'integraçãoemx' in t or 'integracaoemx' in t: return '1. Integração em x'
-                if 'integraçãoemy' in t or 'integracaoemy' in t: return '2. Integração em y'
-                if 'verificaçãoemz' in t or 'verificacaoemz' in t: return '3. Verificação em z'
-                if 'resultadofinal' in t: return 'Resultado final'
+        def _normalizar_titulo(valor):
+            return _re_etapas.sub(r"[^a-z0-9]", "", valor.lower().translate(
+                str.maketrans("áàâãéêíóôõúç", "aaaaeeiooouc")))
+
+        def _etapa_textual(tipo, valor):
+            if tipo != 'text':
                 return None
-            if ('phi' in t or 'φ' in t or 'ϕ' in t) and ('partialx' in t or '∂x' in t or 'int' in t and ('dx' in t or 'mathrm{d}x' in t)):
-                return '1. Integração em x'
-            if ('g(' in t or 'partialg' in t or '∂g' in t) and ('partialy' in t or '∂y' in t or 'int' in t and 'dy' in t):
-                return '2. Integração em y'
-            if ('partialz' in t or '∂z' in t or "h'" in t or 'h^{prime}' in t) and ('phi' in t or 'φ' in t or 'ϕ' in t or 'h' in t):
-                return '3. Verificação em z'
-            if ('phi(x,y,z)' in t or 'φ(x,y,z)' in t or 'ϕ(x,y,z)' in t) and '=' in t and not ('partial' in t or '∂' in t):
-                return 'Resultado final'
+            t = _normalizar_titulo(valor)
+            if 'integracaoemx' in t: return 1
+            if 'integracaoemy' in t: return 2
+            if 'verificacaoemz' in t: return 3
+            if t in ('resultadofinal', 'resultado', 'resultadofinal:'): return 4
             return None
 
-        # Preserva a ordem original; títulos repetidos ou fora de lugar são
-        # substituídos por um único cabeçalho imediatamente antes da etapa.
-        rotulos = ('1. Integração em x', '2. Integração em y', '3. Verificação em z', 'Resultado final')
-        limpos = [(tp, vl) for tp, vl in itens if not (tp == 'text' and _tipo_etapa(tp, vl) in rotulos)]
-        marcadores = []
+        # Remove TODOS os títulos das etapas recebidos do modelo.
+        # Isso impede títulos duplicados ou fora de ordem.
+        limpos = [(tp, vl) for tp, vl in itens if _etapa_textual(tp, vl) is None]
+        titulos = {
+            1: '1. Integração em x',
+            2: '2. Integração em y',
+            3: '3. Verificação em z',
+            4: 'Resultado final',
+        }
+
+        def _detectar_etapa(tipo, valor):
+            if tipo != 'math':
+                return None
+            t = _re_etapas.sub(r'\s+', '', valor.lower())
+            # A detecção das etapas não classifica a função potencial
+            # completa como resultado, pois ela também pode surgir no meio.
+            if ('partial' in t or '∂' in t) and ('partialz' in t or '∂z' in t) and ('phi' in t or 'φ' in t or 'ϕ' in t):
+                return 3
+            if ('h' in t and ('prime' in t or "'" in t)) or ('h(z)' in t and '=c' in t):
+                return 3
+            if ('g(' in t or 'partialg' in t or '∂g' in t) and ('partialy' in t or '∂y' in t or 'dy' in t):
+                return 2
+            if ('phi' in t or 'φ' in t or 'ϕ' in t) and ('partialx' in t or '∂x' in t or ('int' in t and 'dx' in t)):
+                return 1
+            return None
+
+        # O último cálculo com phi(x,y,z) = ... é o resultado final.
+        # Nunca marca como resultado final um cálculo intermediário.
+        pos_final = None
         for i, (tp, vl) in enumerate(limpos):
-            etapa = _tipo_etapa(tp, vl)
-            if etapa:
-                marcadores.append((i, etapa))
-        # Se a conversão matemática omitir as etiquetas, usa a posição dos
-        # cálculos para separar as etapas, sem criar títulos em duplicidade.
+            if tp == 'math':
+                t = _re_etapas.sub(r'\s+', '', vl.lower())
+                if ('phi(x,y,z)' in t or 'φ(x,y,z)' in t or 'ϕ(x,y,z)' in t) and '=' in t and 'partial' not in t and '∂' not in t:
+                    pos_final = i
+
+        # As etapas são posicionadas pelo primeiro cálculo que lhes pertence.
+        marcadores = {}
+        for i, (tp, vl) in enumerate(limpos):
+            etapa = _detectar_etapa(tp, vl)
+            if etapa in (1, 2, 3) and etapa not in marcadores:
+                marcadores[etapa] = i
+        if pos_final is not None:
+            marcadores[4] = pos_final
         if marcadores:
             organizados = []
-            etapa_atual = None
-            for tp, vl in limpos:
-                etapa = _tipo_etapa(tp, vl)
-                if etapa and etapa != etapa_atual:
-                    organizados.append(('text', etapa))
-                    etapa_atual = etapa
-                organizados.append((tp, vl))
+            # Cada título é inserido uma única vez, na posição calculada.
+            for i, item in enumerate(limpos):
+                for etapa in (1, 2, 3, 4):
+                    if marcadores.get(etapa) == i:
+                        organizados.append(('text', titulos[etapa]))
+                organizados.append(item)
             itens = organizados
+        else:
+            itens = limpos
 
     # Insere os títulos no próprio PNG, independentemente de a IA esquecê-los.
     # Detecta a notação matemática (R_x, R_y, R_z, nabla cross/dot,
