@@ -2912,8 +2912,12 @@ PADRAO_RESOLUCAO = (
     "Exemplo: Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z; na linha seguinte Rₓ = 2y − 2y = 0. "
     "NÃO escreva separadamente ∂(2xz+y²)/∂y = 0+2y nem ∂(x²+2yz)/∂z = 0+2y "
     "quando as derivadas forem imediatas. "
-    "No divergente, mostre a substituição das derivadas e, na linha seguinte, "
-    "a soma dos valores derivados e o resultado. "
+    "No divergente, quando as componentes Fₓ, Fᵧ e F_z já estiverem identificadas, "
+    "não repita os polinômios dentro das derivadas: escreva diretamente "
+    "∂Fₓ/∂x = resultado, ∂Fᵧ/∂y = resultado, ∂F_z/∂z = resultado, "
+    "cada um em sua linha; pode mostrar 2y + 0 = 2y se isso ajudar. "
+    "Finalize com ∇·F = soma = resultado simplificado. "
+    "Atenção: Fₓ sozinho NÃO é a derivada e Rₓ designa rotacional, nunca divergente. "
     "EXCEÇÃO IMPORTANTE: para derivadas difíceis, regras do produto, cadeia, quociente, "
     "derivadas implícitas, integrais ou manipulações não triviais, mantenha as etapas "
     "intermediárias realmente necessárias para verificar a conta. "
@@ -2935,7 +2939,9 @@ EXEMPLO_APROVADO = (
     "R_z = 2x − 2x = 0\n"
     "∇×F = (0,0,0)\n\n"
     "Divergente\n"
-    "∇·F = ∂(2xy+z²)/∂x + ∂(x²+2yz)/∂y + ∂(2xz+y²)/∂z\n"
+    "∂Fₓ/∂x = 2y + 0 = 2y\n"
+    "∂Fᵧ/∂y = 0 + 2z = 2z\n"
+    "∂F_z/∂z = 2x + 0 = 2x\n"
     "∇·F = 2y + 2z + 2x = 2x + 2y + 2z\n"
     "Derivadas triviais são calculadas diretamente; mantenha passos para operações difíceis."
 )
@@ -2983,6 +2989,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
                 'No rotacional, cada componente simples deve ter apenas a linha com as duas derivadas '
                 'e a linha seguinte com os resultados e a subtração, sem derivadas individuais. '
+                'No divergente, use ∂Fₓ/∂x, ∂Fᵧ/∂y e ∂F_z/∂z, com seus resultados, sem repetir os polinômios completos se já foram identificados. Não confunda com Rₓ do rotacional. '
                 'Não use LaTeX ou comandos como frac, partial, nabla; somente texto Unicode legível. '
                 'Preserve o método mais simples e a notação legível. '
                 'Se não puder conferir a matemática, responda somente REVISAO_INSEGURA. '
@@ -3369,7 +3376,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, mostre as derivadas na fórmula e a soma direta dos resultados. Em cálculos difíceis, preserve etapas essenciais. "
+                                "Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = ..., ∂Fᵧ/∂y = ..., ∂F_z/∂z = ... e depois ∇·F = soma; não repita polinômios inteiros. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
                                 "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
