@@ -4,12 +4,12 @@ from flask_sock import Sock
 import threading
 import time
 import os
-import base64 
+import base64
 import uuid
-import textwrap 
-import html 
-import subprocess 
-import imageio_ffmpeg  
+import textwrap
+import html
+import subprocess
+import imageio_ffmpeg
 from datetime import datetime
 from openai import OpenAI
 
@@ -702,6 +702,7 @@ audio {
     <div class="card">
 
         <h1>ESP32 Rafael V1</h1>
+        <p><a href="/treinador" style="color:#58a6ff;font-weight:bold">🧪 Laboratório de treinamento da IA — enviar exercício e testar narração</a></p>
 
         <div class="subtitulo">
             Servidor de áudio ESP32
@@ -2858,6 +2859,13 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
         return False
 
 
+
+# Mesma instrução de narração usada na ESP32 e no laboratório web.
+PROMPT_DITADO_EXERCICIO = 'Observe novamente a foto original e resolva SOMENTE o exercício {numero}. Leia o enunciado diretamente da imagem e confira os cálculos. Produza um DITADO MATEMÁTICO EM PORTUGUÊS, o mais resumido possível, para a pessoa copiar a resolução no papel. Não existe meta nem limite de duração ou quantidade de palavras. Priorize concisão máxima, sem omitir cálculos ou resultados indispensáveis. Não repita o enunciado, não faça introduções teóricas, comentários, justificativas extensas ou repetições. Dite apenas as fórmulas, montagens, transformações essenciais e resultados, na ordem correta; não pule passagens necessárias para reproduzir a conta. Separe itens a, b, c, d etc. quando existirem, dizendo o item antes da resolução correspondente. Para toda letra com seta de vetor, pronuncie exatamente: letra vetorial maiúscula F, ou letra vetorial minúscula r, conforme o caso. Preserve a letra e sua caixa. Para letras sem seta, identifique maiúscula ou minúscula quando for necessário distingui-las. Pronuncie o símbolo ∇ como sinal de gradiente, nunca como nabla. Pronuncie × entre vetores como sinal de multiplicação vetorial; pronuncie · entre vetores como sinal de multiplicação escalar. Diferencie ambos de multiplicação numérica comum. Para | no começo de módulo, diga barra inicial de módulo; para | no fim, diga barra final de módulo. Preserve estruturas aninhadas. Ao encontrar matriz ou determinante, diga apenas Vamos montar a matriz. Em seguida leia exatamente os elementos escritos, linha por linha, preservando sinais, letras, índices e posições. Ao terminar diga Matriz terminada. Não explique antecipadamente as linhas ou a ordem da matriz; não diga determinante de ordem três nem frases como na primeira linha colocamos. Para frações, raízes, parênteses e colchetes, indique abertura e fechamento para que a expressão possa ser copiada sem ambiguidade. Para integrais, informe os limites, leia a integral completa na ordem escrita, depois apenas as transformações necessárias e o resultado. Respeite a eliminação dos sinais de integração a cada variável integrada. Para diferenciais finais dx, dy, dz, dr e dθ, pronuncie del xis, del ipsilon, del zê, del erre e del teta, respectivamente. Em mudança de coordenadas, substituição, integração por partes e outras técnicas, apresente somente as relações indispensáveis e as contas efetivamente usadas. Em uma sequência de igualdades, escreva a expressão inicial somente uma vez; continue cada transformação com outro sinal de igualdade, sem repetir o lado esquerdo. Exemplo: rotacional de F = i(2y-2y) - j(2z-2z) + k(2x-2x) = (0,0,0). Não recomece com rotacional de F = (0,0,0). Use Próxima linha apenas quando necessário para separar expressões distintas. Não narre cada operação trivial nem repita fórmulas inalteradas. Não use Markdown, LaTeX, tabelas ou descrições de formatação; escreva diretamente as palavras que deverão ser pronunciadas. Confira resultados, unidades, sinais e limites. Se a imagem não permitir leitura segura, informe isso sem inventar dados. Termine com Resposta final e o resultado correto. Não resolva outros exercícios.'
+
+def prompt_ditado_exercicio(numero):
+    return PROMPT_DITADO_EXERCICIO.replace("{numero}", str(numero))
+
 # =========================================================
 # IA - ANALISA SOMENTE A FOTO NOVA RECEBIDA DA ESP32
 # =========================================================
@@ -3657,7 +3665,7 @@ def websocket_esp32(ws):
                         )
                         tipo_exercicio = (resposta_tipo.output_text or "ESCRITA").strip().upper()
                         eh_objetiva = "OBJETIVA" in tipo_exercicio
-                        velocidade_audio = 1.2 if eh_objetiva else 0.6
+                        velocidade_audio = 1.2 if eh_objetiva else 1.0
                         adicionar_log_esp32(
                             "INFO",
                             f"Exercício {numero}: {'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
@@ -3666,142 +3674,7 @@ def websocket_esp32(ws):
                         conteudo_ia = [
                                     {
                                         "type": "input_text",
-                                        "text": (
-                                            f"Observe novamente esta imagem original e resolva SOMENTE o exercício {numero}. "
-                                            "Leia tudo DIRETAMENTE DA FOTO e confira a matemática antes de responder. "
-                                            "A resposta será convertida em áudio para uma pessoa copiar a resolução no caderno. "
-
-                                            "Produza SOMENTE O GUIA DE ESCRITA FIEL DA RESOLUÇÃO. "
-                                            "O enunciado será lido separadamente antes da resolução; não repita o enunciado aqui. Não dê prévia nem explicações teóricas extensas; identifique e dite as técnicas matemáticas necessárias conforme as regras abaixo. "
-                                            "Não use comentários como 'vamos fazer', 'precisamos', 'observe que', 'como sabemos', "
-                                            "'mantenha', 'continue', 'permanece' ou 'agora calculamos'. "
-                                            "A pessoa quer apenas ouvir exatamente o que deve escrever, linha por linha. "
-
-                                            f"Comece dizendo somente: 'Exercício {numero}. Guia de escrita.' "
-                                            "Para exercícios com integrais, siga obrigatoriamente esta ordem: primeiro os LIMITES JÁ DETERMINADOS, depois a INTEGRAL MONTADA COMPLETA, e somente depois a RESOLUÇÃO linha por linha e a RESPOSTA FINAL. "
-                                            "Não explique longamente como os limites foram obtidos. Dite diretamente as desigualdades corretas de cada variável, uma por linha, por exemplo: zero menor ou igual a x, menor ou igual a três. Próxima linha. Quatro menor ou igual a y, menor ou igual a seis. "
-                                            "Quando os limites dependerem de outra variável, diga a expressão exata e não invente limites constantes. Quando houver mudança para polares ou cilíndricas, diga as relações indispensáveis e o jacobiano de modo breve, e então os limites na nova coordenada. "
-                                            "Depois anuncie: Integral montada completa. Dite de uma só vez a expressão integral inteira, todos os símbolos de integração e seus limites, integrando e diferenciais, com a ordem de integração correta. Somente quando terminar essa integral completa comece as etapas de resolução. "
-                                            "Depois dite a resolução na ordem exata em que deve ser escrita no caderno. "
-                                            "SEPARAÇÃO OBRIGATÓRIA DE EXPRESSÕES: a pessoa está ouvindo e copiando, sem ver a resposta. "
-                                            "Nunca dite duas igualdades, fórmulas, substituições ou relações independentes coladas na mesma frase. "
-                                            "Para cada expressão independente, diga primeiro 'Na linha de baixo, escreva:' e depois dite UMA expressão completa. "
-                                            "Ao terminar essa expressão, encerre a frase com ponto final e anuncie 'Próxima linha.' antes da seguinte. "
-                                            "Se dois termos precisarem ficar na MESMA linha, diga explicitamente 'na mesma linha, deixe um espaço e escreva' "
-                                            "ou 'na mesma linha, escreva vírgula, deixe um espaço e escreva', conforme a notação correta. "
-                                            "Não fale 'pular espaço' de modo ambíguo: diga 'deixe um espaço' para espaço horizontal "
-                                            "e 'próxima linha' para começar outra linha no caderno. "
-                                            "Exemplo obrigatório de mudança para coordenadas cilíndricas: "
-                                            "'Mudança para coordenadas cilíndricas. Na linha de baixo, escreva: x igual a erre vezes cosseno de teta. "
-                                            "Próxima linha. Escreva: y igual a erre vezes seno de teta. "
-                                            "Próxima linha. Escreva: z igual a zê.' "
-                                            "A mesma separação vale para dados, domínio, limites, identidades, jacobiano, resultados parciais e respostas. "
-                                            "Use pausas naturais por pontuação, mas não dependa apenas de pausas do sintetizador: fale os comandos de escrita. "
-                                            "Cada nova linha deve ser COMPLETA e AUTOSSUFICIENTE. "
-                                            "Nunca mande lembrar ou manter uma parte da linha anterior. "
-                                            "Se uma integral continuar na próxima linha, dite somente as integrais AINDA NÃO RESOLVIDAS, com limites, expressão e diferenciais restantes. "
-                                            "Em vez de dizer 'mantenha a integral', diga por exemplo: "
-                                            "'Na linha de baixo, escreva integral de zero até dois...' e dite todo o restante da linha. "
-
-                                            "Use apenas comandos mínimos necessários para copiar, como 'escreva', 'na linha de baixo', "
-                                            "'abra parêntese', 'feche parêntese', 'abra colchete', 'feche colchete', "
-                                            "'coloque o sinal de igualdade', 'limite inferior', 'limite superior', 'numerador' e 'denominador'. "
-
-                                            "ESTRUTURAS MATEMÁTICAS: toda estrutura que possui conteúdo interno deve ser falada com abertura e fechamento explícitos, "
-                                            "para a pessoa saber exatamente onde ela termina. Nunca deixe implícito o fim de uma estrutura. "
-
-                                            "FRAÇÕES: sempre diga 'escreva uma fração'. "
-                                            "Depois diga PRIMEIRO 'denominador sendo...' e dite todo o denominador. "
-                                            "Em seguida diga 'e agora numerador sendo...' e dite todo o numerador. "
-                                            "Assim que terminar o numerador, diga obrigatoriamente 'fim da fração'. "
-                                            "Somente depois de dizer 'fim da fração' dite qualquer termo, sinal ou operação que esteja fora dela. "
-                                            "Exemplo: x ao quadrado sobre dois mais x deve ser falado: "
-                                            "'escreva uma fração, denominador sendo dois, e agora numerador sendo x ao quadrado, fim da fração, "
-                                            "sinal de adição, x'. "
-
-                                            "RAÍZES: sempre anuncie o começo e o fim. "
-                                            "Para raiz quadrada diga 'faça uma raiz quadrada. Dentro da raiz...' e dite todo o conteúdo interno. "
-                                            "Ao terminar o conteúdo diga obrigatoriamente 'fim da raiz'. "
-                                            "Somente depois de 'fim da raiz' dite termos ou operações que estejam fora dela. "
-                                            "Para outras raízes, identifique o índice, por exemplo 'faça uma raiz cúbica', dite o conteúdo e finalize com 'fim da raiz'. "
-
-                                            "PARÊNTESES E COLCHETES: continue usando abertura e fechamento explícitos: "
-                                            "'abra parêntese' e 'feche parêntese'; 'abra colchete' e 'feche colchete'. "
-                                            "Se houver estruturas aninhadas, feche cada uma na ordem correta e fale cada fechamento. "
-
-                                            "SINAIS: se o menos estiver entre termos realizando subtração, diga 'sinal menos de subtração'. "
-                                            "Se um número ou termo tiver valor negativo, diga 'negativo' antes dele. "
-                                            "Quando precisar ditar explicitamente o símbolo de um valor negativo, diga 'sinal menos de valor negativo'. "
-
-                                            "PRONÚNCIA DOS DIFERENCIAIS: use SEMPRE a palavra 'del' apenas para o diferencial no FINAL da expressão: "
-                                            "'del erre' para dr, 'del teta' para dθ, 'del ze' para dz, 'del xis' para dx e 'del ipsilon' para dy. "
-                                            "Nunca diga apenas 'de erre', 'de teta', 'd erre' ou 'd teta' para diferenciais. "
-                                            "O 'del' é somente uma convenção de pronúncia do áudio, não altera a escrita dr, dθ, dz etc. "
-                                            "Fale expoentes como 'x ao quadrado', 'y ao cubo' e assim por diante. "
-
-                                            "INTEGRAIS: antes de montar a integral, dite os limites prontos e concisos, sem demonstrar sua dedução; em seguida dite a integral montada completa; por último, cada linha da resolução pronta. "
-                                            "Para CADA símbolo de integral, anuncie 'integral, limite inferior [valor], limite superior [valor]', "
-                                            "respeitando a ordem em que as integrais são escritas. Não use a palavra 'de' para introduzir o integrando. "
-                                            "Após anunciar TODAS as integrais e respectivos limites, diga sempre 'abra parêntese. Expressão interna: [integrando]. Feche parêntese.' "
-                                            "Isso vale inclusive quando o integrando for só o número um ou uma constante. "
-                                            "Em seguida dite os diferenciais, um por um, na ordem exata da escrita, usando 'del'. "
-                                            "Se o integrando já contiver parênteses, preserve os parênteses internos e anuncie todos os fechamentos. "
-                                            "Os parênteses externos servem apenas para delimitar a expressão interna sem alterar o cálculo. "
-                                            "A CADA INTEGRAÇÃO EXECUTADA, ELIMINE O SÍMBOLO DE INTEGRAL E O DIFERENCIAL DA VARIÁVEL INTEGRADA. "
-                                            "Depois de integrar em z, uma integral tripla vira dupla; depois de integrar em y, vira simples. "
-                                            "É PROIBIDO voltar a escrever integral tripla após integrar em z ou repetir uma linha já ditada. "
-                                            "Se uma linha não mudou matematicamente, NÃO a dite novamente. "
-                                            "Em toda nova linha em que ainda houver integral, repita SOMENTE AS INTEGRAIS RESTANTES com seus limites, "
-                                            "a expressão interna entre parênteses e todos os diferenciais. "
-                                            "COLCHETES DE INTEGRAÇÃO: depois de 'feche colchete', diga sempre "
-                                            "'limites do colchete: inferior [valor], superior [valor]'. "
-                                            "Nunca diga 'avaliado de', 'avaliado entre' ou 'avaliado até' para os limites do colchete. "
-                                            "VERIFICAÇÃO MATEMÁTICA: confira os limites de integração diretamente com as equações e a região do enunciado. "
-                                            "Por exemplo, x ao quadrado mais y ao quadrado igual a quatro corresponde a raio dois, não raio um. "
-                                            "Confira a consistência das substituições e do resultado final antes de ditar. "
-                                            "Ao terminar uma integração, simplesmente dite a próxima expressão a ser escrita. "
-                                            "TÉCNICAS MATEMÁTICAS INTERMEDIÁRIAS: identifique quando uma passagem exigir "
-                                            "substituição de variável, integração por partes, identidade trigonométrica, "
-                                            "frações parciais, mudança de coordenadas, simetria, regra da cadeia em derivadas "
-                                            "ou outra técnica realmente necessária. Não anuncie técnicas em operações diretas. "
-                                            "Quando houver técnica relevante, diga 'Na linha de baixo, escreva: [nome da técnica]'. "
-                                            "Dite em seguida as relações auxiliares INDISPENSÁVEIS, uma linha por vez, "
-                                            "com a escrita matemática completa, sem pular passagens essenciais. "
-                                            "Para substituição, dite a escolha da variável, seu diferencial, "
-                                            "a relação de substituição e a integral transformada; em integrais definidas, "
-                                            "converta também os limites se a variável de integração mudar. "
-                                            "Para integração por partes, dite as escolhas de u e dv, os valores de du e v, "
-                                            "a aplicação da fórmula e a integral restante. "
-                                            "Para identidades, dite a igualdade exata utilizada antes da expressão transformada. "
-                                            "Para frações parciais, dite a decomposição e os coeficientes necessários. "
-                                            "Na mudança de coordenadas, anuncie cada relação em uma linha distinta, "
-                                            "sem juntar x, y, z, jacobiano ou limites na mesma fala. "
-                                            "Para mudanças de coordenadas, dite as relações de transformação, "
-                                            "o jacobiano e os limites da nova região. "
-                                            "Se houver técnica dentro de outra, identifique cada uma na ordem correta. "
-                                            "Após as contas auxiliares, diga 'Voltando à integral principal. Na linha de baixo, escreva' "
-                                            "e dite a expressão completa. Em integrais múltiplas, aplique essa regra "
-                                            "separadamente a cada integração interna que necessite técnica. "
-                                            "Não confunda substituição em integrais com regra da cadeia em derivadas; "
-                                            "nomeie o procedimento efetivamente usado. "
-                                            "Uma simplificação algébrica comum não precisa de título, mas a nova linha deve "
-                                            "mostrar a transformação necessária para acompanhar a conta. "
-                                            "As linhas auxiliares são parte do DITADO PARA O CADERNO, não uma aula teórica. "
-                                            "Preserve integral completa, expressão interna, parênteses, colchetes, frações "
-                                            "e a pronúncia 'del' também nas contas auxiliares. "
-                                            "Evite termos teóricos dispensáveis, mas não proíba nomes matemáticos necessários "
-                                            "para identificar a técnica ou as expressões escritas. "
-                                            "O áudio deve ser um DITADO DA RESOLUÇÃO PRONTA, e não uma aula. "
-
-                                            "Para Física ou outro tipo de exercício, siga a mesma regra: dite somente as linhas da resolução "
-                                            "que devem ser copiadas, incluindo dados, fórmula, conversões, substituições, contas e resultado quando fizerem parte da escrita. "
-                                            "Se houver itens a, b ou c, identifique o item e dite somente a resolução correspondente. "
-
-                                            "Não use markdown, tabelas, comandos LaTeX ou nomes de comandos de formatação. "
-                                            "Não pule etapas escritas importantes. Não invente informação ilegível. Não resolva outros exercícios. "
-                                            "Na última linha diga 'Resposta final' e dite exatamente o resultado, com unidade quando houver. "
-                                            "Se o exercício não estiver legível, diga somente que não conseguiu lê-lo com segurança e peça outra foto."
-                                        )
+                                        "text": prompt_ditado_exercicio(numero)
                                     }
                         ]
 
@@ -3859,14 +3732,15 @@ def websocket_esp32(ws):
                                         "type": "input_text",
                                         "text": (
                                             f"Revise o guia de escrita do exercício {numero} abaixo. "
-                                            "Verifique matemática, limites e resultado. Elimine repetições e reinícios. "
+                                            "Verifique matemática, limites e resultado. Elimine repetições e reinícios. Resuma ao máximo sem perder cálculos essenciais. "
                                             "Em integrais iteradas, a cada variável integrada, elimine exatamente "
                                             "seu símbolo integral e seu diferencial; nunca volte à integral tripla "
                                             "após ela virar dupla. Mantenha uma única linha por transformação "
                                             "matemática efetiva. Preserve o formato de ditado para copiar, "
                                             "com comandos de linha, abertura/fechamento de frações e parênteses. "
+                                            "Em contas encadeadas, mantenha o lado esquerdo apenas na primeira igualdade e continue com = nas linhas seguintes; não reescreva a expressão inteira para apresentar o resultado. "
                                             "Não omita etapas essenciais nem invente dados. "
-                                            "Devolva SOMENTE o guia corrigido, sem comentários de revisão. "
+                                            "Preserve rigorosamente as regras de pronúncia vetorial, maiúscula/minúscula, módulo, gradiente, multiplicação escalar/vetorial e leitura de matriz. ""Devolva SOMENTE o guia corrigido, sem comentários de revisão. "
                                             "Se a matemática não puder ser conferida, responda exatamente "
                                             "REVISAO_INSEGURA.\n\nGUIA ORIGINAL:\n" + resolucao
                                         )
@@ -3899,8 +3773,7 @@ def websocket_esp32(ws):
                             texto_final += f"Resposta correta é a letra {letra}. {texto_alternativa}. "
                             texto_final += "Agora escolha outro exercício, ou repita este. " + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito, atual=indice_opcao)
                         else:
-                            abertura_audio = (f"Exercício {numero}. Enunciado: {enunciado_exercicio}. "
-                                              if enunciado_exercicio else f"Exercício {numero}. ")
+                            abertura_audio = f"Exercício {numero}. "  # Não reler enunciado: priorizar resolução curta.
                             texto_final = (abertura_audio + "Resolução. " + resolucao + " "
                                            "Agora você pode escolher novamente. "
                                            + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito, atual=indice_opcao))
@@ -3956,6 +3829,126 @@ def websocket_esp32(ws):
         if sem_socket and estado_desconectado in ESTADOS_ESP_COM_TIMEOUT:
             atualizar_status_ia("ERRO_AUDIO", "🔴 ESP32 DESCONECTADA", "Conexão perdida durante a entrega do áudio; aguardando recuperação.")
 
+
+
+# =========================================================
+# LABORATÓRIO DE TREINAMENTO: ISOLADO DA ESP32
+# =========================================================
+# Mostra a resolução matemática e o texto exato que seria falado.
+# A prévia TTS é gerada apenas no navegador, sem transmitir à ESP32.
+TREINADOR_MAX_BYTES = 12 * 1024 * 1024
+
+TREINADOR_HTML = """<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Laboratório de treinamento da IA</title>
+<style>
+body{background:#0d1117;color:#e6edf3;font-family:Arial,sans-serif;margin:0;padding:25px}
+main{max-width:950px;margin:auto}.painel{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:22px;margin:15px 0}
+a{color:#58a6ff}button{background:#238636;color:white;border:0;padding:12px 17px;border-radius:8px;cursor:pointer;font-weight:bold}
+button:disabled{opacity:.5;cursor:wait}input,textarea{background:#0d1117;border:1px solid #484f58;color:#fff;padding:10px;border-radius:7px;max-width:100%}
+textarea{width:100%;min-height:160px;box-sizing:border-box;line-height:1.55}pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;background:#0d1117;padding:16px;border-radius:8px}
+small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio{width:100%;margin-top:12px}
+</style></head><body><main><p><a href="/">← Voltar ao servidor</a></p><h1>🧪 Laboratório de treinamento da IA</h1>
+<p>Envie uma foto, confira a resolução escrita e veja o roteiro <strong>exato</strong> que será entregue à voz. Nada é enviado à ESP32.</p>
+<section class="painel"><form id="form"><label>Imagem do exercício (JPG, PNG ou WEBP)</label><p><input type="file" id="imagem" accept="image/jpeg,image/png,image/webp" required></p>
+<p><img id="preview" style="display:none" alt="Imagem escolhida"></p>
+<label>Número ou item a resolver (opcional): <input id="numero" placeholder="Ex.: 1 ou 1a" style="width:150px"></label>
+<p><button id="resolver" type="submit">Resolver e mostrar narração</button></p></form><div id="estado" role="status"></div></section>
+<section id="resultado" style="display:none">
+<div class="painel"><h2>1. Resolução matemática escrita</h2><pre id="escrita"></pre></div>
+<div class="painel"><h2>2. Texto que a IA enviaria ao áudio</h2><small>Texto literal do ditado matemático, depois da revisão. Edite para experimentar ajustes.</small>
+<textarea id="fala" spellcheck="false"></textarea><p><button id="ouvir" type="button">▶ Gerar prévia de áudio</button> <button id="copiar" type="button">Copiar texto</button></p><div id="statusAudio"></div><audio id="player" controls style="display:none"></audio></div>
+</section></main><script>
+const form=document.getElementById('form'),imagem=document.getElementById('imagem'),preview=document.getElementById('preview');
+let audioUrl=null;
+imagem.addEventListener('change',()=>{if(imagem.files[0]){preview.src=URL.createObjectURL(imagem.files[0]);preview.style.display='block'}});
+form.addEventListener('submit',async ev=>{ev.preventDefault();const btn=document.getElementById('resolver');btn.disabled=true;document.getElementById('estado').textContent='Analisando imagem, resolvendo e revisando...';document.getElementById('resultado').style.display='none';
+try{const dados=new FormData();dados.append('imagem',imagem.files[0]);dados.append('numero',document.getElementById('numero').value);
+const resp=await fetch('/api/treinador/resolver',{method:'POST',body:dados});const json=await resp.json();if(!resp.ok)throw Error(json.erro||'Falha');
+document.getElementById('escrita').textContent=json.escrita;document.getElementById('fala').value=json.narracao;document.getElementById('resultado').style.display='block';document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
+}catch(e){document.getElementById('estado').textContent='Erro: '+e.message}finally{btn.disabled=false}});
+document.getElementById('copiar').onclick=async()=>{await navigator.clipboard.writeText(document.getElementById('fala').value)};
+document.getElementById('ouvir').onclick=async()=>{const btn=document.getElementById('ouvir');btn.disabled=true;document.getElementById('statusAudio').textContent='Gerando voz...';
+try{const resp=await fetch('/api/treinador/audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texto:document.getElementById('fala').value})});if(!resp.ok){const j=await resp.json();throw Error(j.erro||'Erro na voz')}
+if(audioUrl)URL.revokeObjectURL(audioUrl);audioUrl=URL.createObjectURL(await resp.blob());const player=document.getElementById('player');player.src=audioUrl;player.style.display='block';document.getElementById('statusAudio').textContent='Áudio pronto.';await player.play().catch(()=>{});
+}catch(e){document.getElementById('statusAudio').textContent='Erro: '+e.message}finally{btn.disabled=false}};
+</script></body></html>"""
+
+@app.route('/treinador', methods=['GET'])
+def pagina_treinador():
+    return render_template_string(TREINADOR_HTML)
+
+@app.route('/api/treinador/resolver', methods=['POST'])
+def treinador_resolver():
+    if openai_client is None:
+        return jsonify({'erro':'OPENAI_API_KEY não configurada.'}), 503
+    arquivo = request.files.get('imagem')
+    if arquivo is None:
+        return jsonify({'erro':'Selecione uma imagem.'}), 400
+    dados = arquivo.read(TREINADOR_MAX_BYTES + 1)
+    if not dados or len(dados) > TREINADOR_MAX_BYTES:
+        return jsonify({'erro':'Imagem vazia ou maior que 12 MB.'}), 400
+    tipo = arquivo.mimetype
+    assinaturas = {'image/jpeg':dados[:3]==b'\xff\xd8\xff', 'image/png':dados[:8]==b'\x89PNG\r\n\x1a\n', 'image/webp':dados[8:12]==b'WEBP' and dados[:4]==b'RIFF'}
+    if not assinaturas.get(tipo, False):
+        return jsonify({'erro':'Envie uma imagem JPG, PNG ou WEBP válida.'}), 400
+    numero = (request.form.get('numero') or '').strip()[:30]
+    if not numero: numero = 'visível na imagem'
+    imagem_url = 'data:'+tipo+';base64,'+base64.b64encode(dados).decode('ascii')
+    try:
+        # Etapa 1: roteiro falado com EXATAMENTE o prompt usado na resolução da ESP32.
+        entrada = [{'type':'input_text','text':prompt_ditado_exercicio(numero)},
+                   {'type':'input_image','image_url':imagem_url}]
+        if material_base_file_id:
+            entrada.append({'type':'input_file','file_id':material_base_file_id})
+        resposta = openai_client.responses.create(model=OPENAI_MODEL,input=[{'role':'user','content':entrada}])
+        narracao = (resposta.output_text or '').strip()
+        if not narracao:
+            return jsonify({'erro':'A IA não produziu uma narração.'}), 502
+        # Etapa 2: mesma finalidade da revisão da produção, sem recomeços.
+        revisao = openai_client.responses.create(model=OPENAI_MODEL,input=[{'role':'user','content':[
+            {'type':'input_text','text':(
+                'Revise o ditado matemático a seguir com rigor: confira cálculos, sinais, limites e resultado. '
+                'Resuma ao máximo sem omitir contas essenciais. Preserve as regras de pronúncia de letras vetoriais, '
+                'maiúsculas/minúsculas, sinal de gradiente, multiplicação escalar/vetorial, barras de módulo e matriz. '
+                'Matrizes começam com Vamos montar a matriz e terminam com Matriz terminada. '
+                'Não repita o lado esquerdo em uma sequência de igualdades. '
+                'Retorne SOMENTE o texto a ser falado, sem markdown. Se não for seguro revisar, retorne REVISAO_INSEGURA.\n\n'+narracao)}
+        ]}])
+        narracao=(revisao.output_text or '').strip()
+        if not narracao or narracao=='REVISAO_INSEGURA':
+            return jsonify({'erro':'A revisão não conseguiu validar a resolução.'}), 422
+        # Etapa 3: representação matemática fiel, sem inventar contas além do ditado.
+        escrita_resp=openai_client.responses.create(model=OPENAI_MODEL,input=[{'role':'user','content':[
+            {'type':'input_text','text':(
+                'Reescreva o DITADO MATEMÁTICO abaixo como resolução ESCRITA organizada em passos curtos. '
+                'Use notação matemática legível em texto puro, com Unicode quando conveniente (∇, ∂, ∫, ×, ·, →). '
+                'Mostre fórmulas, matrizes linha por linha e igualdades encadeadas, sem repetir o lado esquerdo. '
+                'Não acrescente novos cálculos, conclusões ou etapas além do que o ditado sustenta. '
+                'Não faça explicações redundantes. Responda SOMENTE a resolução escrita.\n\nDITADO:\n'+narracao)}
+        ]}])
+        escrita=(escrita_resp.output_text or '').strip()
+        return jsonify({'ok':True,'escrita':escrita,'narracao':narracao})
+    except Exception as erro:
+        app.logger.exception('Erro no laboratório de treinamento')
+        return jsonify({'erro':'Falha ao consultar a IA: '+str(erro)}), 502
+
+@app.route('/api/treinador/audio', methods=['POST'])
+def treinador_audio():
+    if openai_client is None:
+        return jsonify({'erro':'OPENAI_API_KEY não configurada.'}), 503
+    corpo=request.get_json(silent=True) or {}
+    texto=str(corpo.get('texto','')).strip()
+    if not texto or len(texto)>18000:
+        return jsonify({'erro':'Texto vazio ou muito longo (máximo 18 mil caracteres).'}), 400
+    try:
+        # Prévia separada: não entra na galeria de áudio nem envia via WebSocket.
+        fala=openai_client.audio.speech.create(model=OPENAI_TTS_MODEL,voice=OPENAI_TTS_VOICE,input=texto,response_format='mp3')
+        from io import BytesIO
+        return send_file(BytesIO(fala.content),mimetype='audio/mpeg',download_name='previa_treinador.mp3')
+    except Exception as erro:
+        app.logger.exception('Erro no TTS de treinamento')
+        return jsonify({'erro':'Falha ao gerar a voz: '+str(erro)}), 502
 
 # =========================================================
 # EXECUÇÃO LOCAL
