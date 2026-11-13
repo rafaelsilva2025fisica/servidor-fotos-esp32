@@ -2904,6 +2904,7 @@ PADRAO_RESOLUCAO = (
     "FORMATO DA RESOLUÇÃO ESCRITA: texto Unicode legível, sem LaTeX ou Markdown matemático. "
     "Use ², ³, ∂, ∇, ×, · e −. Escreva derivadas como ∂(expressão)/∂x. "
     "Comece diretamente pela substituição nas operações solicitadas, sem repetir fórmula geral abstrata. "
+    "Quando houver rotacional e divergente, escreva OBRIGATORIAMENTE os títulos Rotacional e Divergente, cada um em sua própria linha antes dos respectivos cálculos. "
     "REGRA DE CONCISÃO: em derivadas parciais simples de polinômios, faça a derivação mentalmente "
     "e passe DIRETAMENTE da expressão de derivadas para a linha de subtração ou soma dos resultados. "
     "No rotacional, para cada componente Rₓ, Rᵧ e R_z, use SOMENTE duas linhas: "
@@ -2987,6 +2988,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
                 'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
+                'Inclua os títulos Rotacional e Divergente quando ambas as operações forem solicitadas. '
                 'No rotacional, cada componente simples deve ter apenas a linha com as duas derivadas '
                 'e a linha seguinte com os resultados e a subtração, sem derivadas individuais. '
                 'No divergente, use ∂Fₓ/∂x, ∂Fᵧ/∂y e ∂F_z/∂z, com seus resultados, sem repetir os polinômios completos se já foram identificados. Não confunda com Rₓ do rotacional. '
@@ -3311,6 +3313,45 @@ def _latex_para_imagem(escrita, titulo, destino):
     if not itens:
         raise ValueError('Conversão matemática sem linhas válidas.')
 
+    # Insere os títulos no próprio PNG, independentemente de a IA esquecê-los.
+    # Detecta a notação matemática (R_x, R_y, R_z, nabla cross/dot,
+    # derivadas de F_x/F_y/F_z) e não inventa seções para outros exercícios.
+    def classificar_secao(tipo, valor):
+        import re
+        t = valor.strip().replace('\\', '')
+        t = re.sub(r'\s+', '', t).lower()
+        if tipo == 'text':
+            if t in ('rotacional', 'rotacional:', 'cálculodorotacional'):
+                return 'Rotacional'
+            if t in ('divergente', 'divergente:', 'divergência', 'divergência:'):
+                return 'Divergente'
+        # Os resultados de rotacional têm R_x/R_y/R_z ou nabla x F.
+        if re.match(r'^r(?:_[{]?[xyz][}]?|[ₓᵧz])\s*=', t) or ('nabla' in t and 'times' in t):
+            return 'Rotacional'
+        if ('nabla' in t and 'cdot' in t) or ('∇' in t and '·' in t):
+            return 'Divergente'
+        if ('partial' in t or '∂' in t) and re.search(r'f(?:_[{]?[xyz][}]?|[ₓᵧz])', t):
+            return 'Divergente'
+        return None
+
+    secoes = {classificar_secao(tipo, valor) for tipo, valor in itens}
+    if 'Rotacional' in secoes and 'Divergente' in secoes:
+        organizados = []
+        secao_atual = None
+        for tipo, valor in itens:
+            secao = classificar_secao(tipo, valor)
+            if tipo == 'text' and secao in ('Rotacional', 'Divergente'):
+                # Título original será substituído pelo título padronizado.
+                if secao != secao_atual:
+                    organizados.append(('text', secao))
+                    secao_atual = secao
+                continue
+            if secao and secao != secao_atual:
+                organizados.append(('text', secao))
+                secao_atual = secao
+            organizados.append((tipo, valor))
+        itens = organizados
+
     def desenhar(itens, fallback=False):
         # Ajusta altura à quantidade de linhas; nenhuma fórmula vira código no HTML.
         n = min(len(itens), 240)
@@ -3376,7 +3417,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = ..., ∂Fᵧ/∂y = ..., ∂F_z/∂z = ... e depois ∇·F = soma; não repita polinômios inteiros. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
+                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, quando solicitadas. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = ..., ∂Fᵧ/∂y = ..., ∂F_z/∂z = ... e depois ∇·F = soma; não repita polinômios inteiros. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
                                 "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
