@@ -3971,7 +3971,7 @@ def websocket_esp32(ws):
 # A prévia TTS é gerada apenas no navegador, sem transmitir à ESP32.
 TREINADOR_MAX_BYTES = 12 * 1024 * 1024
 
-TREINADOR_HTML = """<!doctype html>
+TREINADOR_HTML = r"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Laboratório de treinamento da IA</title><script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},svg:{fontCache:'global'}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 <style>
@@ -4003,7 +4003,7 @@ imagem.addEventListener('change',()=>{if(imagem.files[0]){preview.src=URL.create
 form.addEventListener('submit',async ev=>{ev.preventDefault();const btn=document.getElementById('resolver');btn.disabled=true;document.getElementById('estado').textContent='Analisando imagem, resolvendo e revisando...';document.getElementById('resultado').style.display='none';
 try{const dados=new FormData();dados.append('imagem',imagem.files[0]);dados.append('numero',document.getElementById('numero').value);
 const resp=await fetch('/api/treinador/resolver',{method:'POST',body:dados});const json=await resp.json();if(!resp.ok)throw Error(json.erro||'Falha');
-document.getElementById('escrita').textContent=json.escrita; if(window.MathJax&&MathJax.typesetPromise)await MathJax.typesetPromise([document.getElementById('escrita')]);document.getElementById('fala').value=json.narracao;document.getElementById('resultado').style.display='block';document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
+document.getElementById('resultado').style.display='block';const area=document.getElementById('escrita');area.textContent=json.escrita;if(window.MathJax){await MathJax.startup.promise;MathJax.typesetClear([area]);await MathJax.typesetPromise([area]);}document.getElementById('fala').value=json.narracao;document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
 }catch(e){document.getElementById('estado').textContent='Erro: '+e.message}finally{btn.disabled=false}});
 document.getElementById('salvarExemplo').onclick=async()=>{
 const esperado=document.getElementById('esperada').value.trim(),erro=document.getElementById('erroTreino').value.trim();
