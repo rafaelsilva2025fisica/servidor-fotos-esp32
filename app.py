@@ -2898,6 +2898,14 @@ PROMPT_DITADO_EXERCICIO = (
     "denominador, [expressão de baixo], fim da fração. "
     "Leia parênteses como abre parênteses e fecha parênteses, expoentes como ao quadrado, "
     "ao cubo etc., e índices como subscrito xis, subscrito ípsilon, subscrito zê. "
+    "REGRA OBRIGATÓRIA DE MAIÚSCULAS PARA TODAS AS LETRAS: sempre que uma letra "
+    "estiver em maiúscula, diga o nome da letra seguido de maiúsculo (ou maiúscula "
+    "conforme a pronúncia natural); se estiver em minúscula, diga apenas o nome "
+    "da letra, sem falar minúsculo. Preserve a diferença em todas as fórmulas, "
+    "vetores, índices e variáveis, incluindo letras gregas quando houver distinção. "
+    "Exemplos: F = efe maiúsculo; f = efe; Fₓ = efe maiúsculo subscrito xis; "
+    "Rₓ = érre maiúsculo subscrito xis; x = xis; X = xis maiúsculo; "
+    "A = á maiúsculo; a = á. Não anuncie maiúsculo para símbolos ∂ ou ∇. "
     "Leia x como xis, y como ípsilon e z como zê. "
     "Para ∇ diga sinal de gradiente. Leia módulos e integrais indicando limites "
     "e delimitadores necessários. Não use Markdown nem LaTeX; entregue somente as palavras "
@@ -3043,13 +3051,18 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
             'conteúdo de baixo, fim da fração, preservando cada sinal em ambos. '
             'Leia ( como abre parênteses, ) como fecha parênteses, ² como ao quadrado, '
             '³ como ao cubo, x como xis, y como ípsilon, z como zê. '
-            'Leia Rₓ como érre subscrito xis, Rᵧ como érre subscrito ípsilon, '
-            'R_z como érre subscrito zê. Para ∇ diga sinal de gradiente. '
+            'Regra obrigatória para TODAS as letras: pronuncie explicitamente maiúsculo '
+            'quando a letra escrita for maiúscula; quando for minúscula, fale só o nome '
+            'da letra, sem dizer minúsculo. Preserve maiúsculas em vetores, componentes, '
+            'índices e variáveis. F = efe maiúsculo; f = efe; Fₓ = efe maiúsculo '
+            'subscrito xis; Rₓ = érre maiúsculo subscrito xis; Rᵧ = érre maiúsculo '
+            'subscrito ípsilon; R_z = érre maiúsculo subscrito zê; X = xis maiúsculo; '
+            'x = xis. Para ∇ diga sinal de gradiente. '
             'Não acrescente explicações, justificativas, contas nem palavras introdutórias. '
             'Não diga Pula linha nem Próxima linha. Sem Markdown ou LaTeX. '
             'Responda SOMENTE o texto que será falado. '
             'EXEMPLO DE LEITURA: Rₓ = 6y − 4y = 2y vira '
-            'érre subscrito xis, sinal de igual, seis ípsilon, sinal menos, '
+            'érre maiúsculo subscrito xis, sinal de igual, seis ípsilon, sinal menos, '
             'quatro ípsilon, sinal de igual, dois ípsilon. '
             'EXEMPLO DE FRAÇÃO: ∂(5xz+3y²)/∂y vira '
             'fração, numerador, dél, abre parênteses, cinco xis zê, sinal mais, '
