@@ -1061,7 +1061,15 @@ async function carregarResolucoes() {
             const info = document.createElement("div"); info.className = "foto-info";
             const indice = item.nome.match(/__(\\d+)_/);
             info.textContent = indice ? "Resolução " + Number(indice[1]) : item.nome;
-            card.appendChild(info); grid.appendChild(card);
+            card.appendChild(info);
+            // Link de download individual, compatível com celular e computador.
+            const baixar = document.createElement("a");
+            baixar.href = "/resolucoes/baixar/" + encodeURIComponent(item.nome);
+            baixar.textContent = "⬇️ BAIXAR IMAGEM";
+            baixar.setAttribute("aria-label", "Baixar " + (indice ? "resolução " + Number(indice[1]) : item.nome));
+            baixar.style.cssText = "display:block;margin:8px;padding:12px;text-align:center;background:#238636;color:white;border-radius:8px;font-weight:bold;text-decoration:none;touch-action:manipulation;";
+            card.appendChild(baixar);
+            grid.appendChild(card);
         });
         if (!dados.imagens || !dados.imagens.length) grid.textContent = "Ainda não há resoluções prontas para esta foto.";
         const ativos = (dados.jobs || []).filter(j => j.estado !== "concluido");
@@ -3711,6 +3719,16 @@ def api_resolucoes():
     return jsonify({"foto": foto or None,
                     "imagens": [{"nome": n, "url": "/resolucoes/" + n} for n in arquivos],
                     "jobs": jobs})
+
+
+@app.route("/resolucoes/baixar/<path:nome>", methods=["GET"])
+def baixar_resolucao(nome):
+    # Restringe o download aos arquivos de imagem gerados pela galeria.
+    if (not nome or os.path.basename(nome) != nome or
+            not nome.lower().endswith((".png", ".svg"))):
+        return jsonify({"erro": "Nome de imagem inválido."}), 400
+    return send_from_directory(PASTA_RESOLUCOES, nome, as_attachment=True,
+                               download_name=nome)
 
 
 @app.route("/resolucoes/<path:nome>", methods=["GET"])
