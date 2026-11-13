@@ -54,6 +54,8 @@ lock = threading.RLock()
 ultimo_sinal_esp = 0.0
 esp_ws = None
 audios = {}
+reset_geracao = 0  # invalida trabalhos de audio iniciados antes do reset
+reset_pendente = False  # reenviar na proxima conexao da placa
 
 # Arquivos enviados manualmente para /downloads no SD da ESP32
 arquivos_sd = {}
@@ -1062,11 +1064,12 @@ async function carregarResolucoes() {
             const indice = item.nome.match(/__(\\d+)_/);
             info.textContent = indice ? "Resolução " + Number(indice[1]) : item.nome;
             card.appendChild(info);
+            // Link de download individual, compatível com celular e computador.
             const baixar = document.createElement("a");
-            baixar.href = item.url + "?baixar=1";
+            baixar.href = "/resolucoes/baixar/" + encodeURIComponent(item.nome);
             baixar.textContent = "⬇️ BAIXAR IMAGEM";
-            baixar.setAttribute("download", item.nome);
-            baixar.style.cssText = "display:block;margin:8px;padding:11px;text-align:center;background:#238636;color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:14px;";
+            baixar.setAttribute("aria-label", "Baixar " + (indice ? "resolução " + Number(indice[1]) : item.nome));
+            baixar.style.cssText = "display:block;margin:8px;padding:12px;text-align:center;background:#238636;color:white;border-radius:8px;font-weight:bold;text-decoration:none;touch-action:manipulation;";
             card.appendChild(baixar);
             grid.appendChild(card);
         });
@@ -2402,10 +2405,10 @@ def baixar_audio(audio_id):
     with lock:
         dados = audios.get(audio_id)
 
-    if dados is None:
+    if dados is None or dados.get("cancelado_reset"):
 
         return jsonify({
-            "erro": "Áudio não encontrado."
+            "erro": "Áudio não encontrado ou cancelado pelo reset."
         }), 404
 
     caminho = dados["arquivo"]
@@ -2468,7 +2471,7 @@ def audio_download_erro(audio_id):
             dados["tentativas_recuperacao"] = tentativas
             dados["recebido"] = False
 
-    if dados is None:
+    if dados is None or dados.get("cancelado_reset"):
         adicionar_log_esp32("AVISO", f"Recuperacao ignorada: audio antigo/inexistente {audio_id}.")
         return jsonify({"ok": False, "erro": "Audio antigo nao encontrado; descarte a pendencia no SD."}), 404
 
@@ -2614,25 +2617,46 @@ def limpar_logs():
 
 @app.route("/reset-limpo", methods=["POST"])
 def reset_limpo_esp32():
-    global esp_ws
+    global esp_ws, reset_geracao, reset_pendente
+    global aguardando_resposta_menu, foto_sessao_atual, nome_foto_sessao_atual
+    global quantidade_exercicios_sessao, gabarito_rapido_disponivel
+    global texto_ultimo_gabarito, indice_audio_atual, id_audio_atual
 
-    if not esp_esta_online():
-        return jsonify({"erro": "ESP32 está desconectada."}), 503
-
+    # Reset prioritario: nao depende do estado OCUPADO, do audio ou do WebSocket.
+    # Preserva as galerias e os arquivos no disco.
     with lock:
+        reset_geracao += 1
+        reset_pendente = True
+        aguardando_resposta_menu = False
+        exercicios_atuais.clear()
+        foto_sessao_atual = None
+        nome_foto_sessao_atual = None
+        quantidade_exercicios_sessao = 0
+        gabarito_rapido_disponivel = False
+        texto_ultimo_gabarito = None
+        audios_exercicios_sessao.clear()
+        indice_audio_atual = 0
+        id_audio_atual = None
+        # Impede que o firmware baixe novamente WAVs de sessoes anteriores.
+        for item in audios.values():
+            item["cancelado_reset"] = True
         socket_atual = esp_ws
 
-    if socket_atual is None:
-        return jsonify({"erro": "Canal da ESP32 não está disponível."}), 503
+    atualizar_status_ia("AGUARDANDO", "⚪ IA AGUARDANDO", "Reset limpo: sessao e audios pendentes cancelados.")
+    adicionar_log_esp32("AVISO", "RESET LIMPO: sessao limpa; audios antigos bloqueados.")
 
-    try:
-        socket_atual.send("RESET_LIMPO")
-        adicionar_log_esp32("AVISO", "Comando RESET_LIMPO enviado para a ESP32.")
-    except Exception as erro:
-        print("ERRO AO ENVIAR RESET_LIMPO:", erro, flush=True)
-        return jsonify({"erro": "Falha ao enviar RESET_LIMPO para ESP32."}), 500
+    if socket_atual is not None:
+        try:
+            socket_atual.send("RESET_LIMPO")
+            with lock:
+                reset_pendente = False
+            adicionar_log_esp32("AVISO", "RESET_LIMPO enviado; aguardando reinicio/reconexao.")
+            return jsonify({"ok": True, "comando": "RESET_LIMPO", "pendente": True})
+        except Exception as erro:
+            adicionar_log_esp32("AVISO", f"ESP32 sem resposta ao reset; comando pendente para reconexao: {erro}")
 
-    return jsonify({"ok": True, "comando": "RESET_LIMPO"})
+    return jsonify({"ok": True, "comando": "RESET_LIMPO", "pendente": True,
+                    "aviso": "Servidor limpo; ESP32 recebera reset quando reconectar."})
 
 
 @app.route("/tirar-foto", methods=["POST"])
@@ -2729,6 +2753,8 @@ def reenviar_audio_da_sessao(audio_id):
     global aguardando_resposta_menu
     with lock:
         dados = audios.get(audio_id)
+        if dados is None or dados.get("cancelado_reset"):
+            return False
         socket = esp_ws
     if not dados or not os.path.isfile(dados.get("arquivo", "")) or socket is None:
         return False
@@ -2760,6 +2786,8 @@ def preparar_texto_para_tts(texto):
 
 def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
     global esp_ws, aguardando_resposta_menu
+    with lock:
+        geracao_inicio = reset_geracao
 
     texto = (texto or "").strip()
     texto = preparar_texto_para_tts(texto)
@@ -2828,6 +2856,9 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
         tamanho_wav = os.path.getsize(caminho_wav)
 
         with lock:
+            if geracao_inicio != reset_geracao:
+                adicionar_log_esp32("AVISO", "Audio antigo descartado apos RESET LIMPO.")
+                return False
             audios[audio_id] = {
                 "arquivo": caminho_wav,
                 "recebido": False,
@@ -2850,6 +2881,10 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
             adicionar_log_esp32("ERRO", "WebSocket da ESP32 indisponível para áudio da IA.")
             return False
 
+        with lock:
+            if geracao_inicio != reset_geracao:
+                audios[audio_id]["cancelado_reset"] = True
+                return False
         comando = ("NOVO_AUDIO_MENU|" if menu else "NOVO_AUDIO|") + audio_id
         print(f">>> WS PARA ESP32: {comando} <<<", flush=True)
         socket_atual.send(comando)
@@ -2970,6 +3005,7 @@ PADRAO_RESOLUCAO = (
     "Não use matrizes para rotacional se o cálculo direto for mais simples. "
     "Para integrais definidas, use INT{inferior}{superior} conforme o formato do servidor. "
     "Para integral de linha de campo conservativo, não refaça os itens anteriores: Passo Aplicação do teorema, Passo Substituição dos pontos e Resultado final uma vez no encerramento. Calcule os potenciais dos extremos separadamente e finalize diretamente com ∫_C F·dr = valor. "
+    "EM TODOS os tipos de exercícios, coloque Resultado final em linha própria imediatamente antes da última expressão conclusiva; uma única vez e nunca no meio da resolução. "
     "Nos títulos das etapas, nunca use números, enumeração, hífen ou travessão: escreva exatamente Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final (uma vez só no encerramento), adaptando as variáveis ao exercício. Retorne SOMENTE a resolução escrita."
 )
 
@@ -3013,6 +3049,36 @@ def contexto_exemplos():
 
 REGRA_COMPLETUDE_CURVAS = '\nREGRA DE COMPLETUDE GEOMÉTRICA (OBRIGATÓRIA): em integrais de linha sobre fronteira\nfechada, identifique TODOS os trechos da fronteira, incluindo segmentos verticais\nou horizontais implícitos nos limites da região. Determine os vértices/pontos de\ninterseção e a orientação solicitada. Para cada trecho, escreva ponto inicial,\nponto final e parametrização; confira que o fim de um coincide com o início do\nseguinte e que o último termina no início do primeiro. Só depois integre e some\nTODAS as contribuições. Não considere uma curva fechada se houver lacuna.\nExemplo geométrico (não copie os valores para outros problemas): para\n0 ≤ x ≤ 1 e 0 ≤ y ≤ x², a fronteira possui TRÊS partes: y=0 de (0,0) a (1,0),\nx=1 de (1,0) a (1,1), e y=x² de (1,1) a (0,0), nesta ordem anti-horária.\nSe uma parte estiver ausente, a resposta está INCOMPLETA: corrija antes de\nentregar, mesmo que as integrais já feitas estejam certas. Em outros exercícios,\nreconstrua a geometria a partir da foto, sem assumir três trechos.\nEm itens isolados, faça todos os cálculos auxiliares necessários, mas não\nresolva separadamente outros subitens. Não presuma que itens anteriores foram feitos.\n'
 
+def garantir_titulo_resultado_final(resolucao):
+    """Garante um único marcador audível antes da última expressão conclusiva."""
+    import re
+    linhas = [linha.rstrip() for linha in str(resolucao).splitlines()]
+    # Não transforma mensagens de erro ou ausência de enunciado em respostas matemáticas.
+    texto = " ".join(linhas).lower()
+    if not linhas or any(x in texto for x in (
+        "enunciado não encontrado", "enunciado nao encontrado",
+        "não encontrei o enunciado", "nao encontrei o enunciado",
+        "revisao_insegura", "revisão insegura"
+    )):
+        return resolucao
+    # Remove somente títulos isolados; mantém expressões e cálculos intactos.
+    linhas = [linha for linha in linhas if not re.fullmatch(
+        r"\s*(?:#{1,4}\s*)?resultado\s+final\s*[:：.]?\s*", linha, re.I
+    )]
+    while linhas and not linhas[-1].strip():
+        linhas.pop()
+    if not linhas:
+        return resolucao
+    # Não cria um resultado numérico: usa a última linha já produzida e auditada.
+    ultima = linhas.pop().strip()
+    if not ultima or not any(c in ultima for c in "=≃≈→:"):
+        linhas.append(ultima)
+        return "\n".join(linhas).strip()  # Evita inventar conclusão.
+    while linhas and not linhas[-1].strip():
+        linhas.pop()
+    return "\n".join(linhas + ["", "Resultado final", ultima]).strip()
+
+
 def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     """Fluxo único para laboratório e exercícios escritos enviados pela ESP32."""
     conteudo = [{'type': 'input_text', 'text': (
@@ -3042,6 +3108,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'Não use LaTeX ou comandos como frac, partial, nabla; somente texto Unicode legível. '
                 'Preserve o método mais simples e a notação legível. '
                 'Se não puder conferir a matemática, responda somente REVISAO_INSEGURA. '
+                'Em qualquer tipo de exercício, mantenha Resultado final exatamente uma vez, imediatamente antes da última expressão conclusiva. '
                 'Devolva SOMENTE a resolução escrita corrigida.\n\n' +
                 PADRAO_RESOLUCAO + '\n\nRESOLUÇÃO ORIGINAL:\n' + escrita)},
             {'type':'input_image','image_url':imagem_url}
@@ -3049,6 +3116,8 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     escrita = (segunda.output_text or '').strip()
     if not escrita or escrita == 'REVISAO_INSEGURA':
         raise ValueError('REVISAO_INSEGURA')
+
+    escrita = garantir_titulo_resultado_final(escrita)
 
     # A narração acompanha a resolução escrita, linha por linha, sem alterar a matemática.
     # As quebras são enumeradas para reduzir a chance de a IA pular a locução de transição.
@@ -3601,6 +3670,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                                 "Resultado final; ∫_C F·dr = valor. "
                                 "O título Resultado final aparece uma única vez e a última linha contém só a expressão e o valor simplificado, "
                                 "sem repetir φ(B) − φ(A) ou reordenar contas. "
+                                "Obrigatório em qualquer exercício: título Resultado final uma vez, em linha própria antes da última expressão. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
                                 "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, SOMENTE quando solicitadas no exercício atual. Para exercícios que PEDEM CALCULAR função potencial, divida a resolução com os títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, adaptando variáveis conforme necessário. Ao integrar, escreva explicitamente φ = ∫(expressão) dx antes do resultado integrado; faça o mesmo para g(y,z) = ∫(expressão) dy e integrais seguintes quando necessárias. Nunca pule a integral que gera uma função. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Não numere títulos nem use traços entre Passo e a descrição; escreva Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final uma única vez no encerramento quando aplicável. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
@@ -3633,6 +3703,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                                 "Se a solução estiver correta, devolva-a sem mudanças matemáticas. "
                                 "Preserve texto Unicode, títulos sem numeração, INT{inferior}{superior} "
                                 "para integrais definidas e Resultado final uma única vez. "
+                                "Em todo exercício, use Resultado final uma única vez, antes da última expressão. "
                                 "Não use Markdown nem LaTeX. Responda SOMENTE a resolução revisada. "
                                 "ENUNCIADO IDENTIFICADO: " + enunciado +
                                 "\nRESOLUÇÃO A AUDITAR:\n" + conteudo
@@ -3643,7 +3714,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                     revisada = (auditoria.output_text or "").strip()
                     if not revisada:
                         raise ValueError("Auditoria matemática retornou texto vazio")
-                    conteudo = revisada
+                    conteudo = garantir_titulo_resultado_final(revisada)
                     # Remove sufixos de unidade redundantes em outros idiomas na resposta final.
                     import re
                     conteudo = re.sub(r"(?im)(?<=\d)\s+(?:куб(?:ических)?|cubic\s+units?)\s*$", "", conteudo)
@@ -3684,9 +3755,19 @@ def api_resolucoes():
                     "jobs": jobs})
 
 
+@app.route("/resolucoes/baixar/<path:nome>", methods=["GET"])
+def baixar_resolucao(nome):
+    # Restringe o download aos arquivos de imagem gerados pela galeria.
+    if (not nome or os.path.basename(nome) != nome or
+            not nome.lower().endswith((".png", ".svg"))):
+        return jsonify({"erro": "Nome de imagem inválido."}), 400
+    return send_from_directory(PASTA_RESOLUCOES, nome, as_attachment=True,
+                               download_name=nome)
+
+
 @app.route("/resolucoes/<path:nome>", methods=["GET"])
 def arquivo_resolucao(nome):
-    resposta = send_from_directory(PASTA_RESOLUCOES, nome, as_attachment=request.args.get("baixar") == "1")
+    resposta = send_from_directory(PASTA_RESOLUCOES, nome, as_attachment=False)
     resposta.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
     return resposta
 
@@ -3804,7 +3885,7 @@ def arquivo_galeria(nome):
 def websocket_esp32(ws):
     global aguardando_resposta_menu, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel, texto_ultimo_gabarito, indice_audio_atual, id_audio_atual
 
-    global esp_ws
+    global esp_ws, reset_pendente
 
     print(
         "================================",
@@ -3829,7 +3910,16 @@ def websocket_esp32(ws):
 
     try:
 
-        ws.send("SERVIDOR_OK")
+        # Um reset pedido offline tem prioridade sobre qualquer trabalho anterior.
+        with lock:
+            enviar_reset = reset_pendente
+        if enviar_reset:
+            with lock:
+                reset_pendente = False
+            ws.send("RESET_LIMPO")
+            adicionar_log_esp32("AVISO", "RESET_LIMPO pendente enviado na reconexao.")
+        else:
+            ws.send("SERVIDOR_OK")
 
         while True:
 
@@ -3856,6 +3946,12 @@ def websocket_esp32(ws):
                         partes_log[2]
                     )
 
+                continue
+
+            if mensagem in ("RESET_LIMPO_OK", "RESET_OK"):
+                with lock:
+                    reset_pendente = False
+                adicionar_log_esp32("OK", "ESP32 confirmou reset limpo.")
                 continue
 
             # PING
@@ -3899,6 +3995,8 @@ def websocket_esp32(ws):
 
                     with lock:
 
+                        if audio_id in audios and audios[audio_id].get("cancelado_reset"):
+                            continue
                         if audio_id in audios:
 
                             audios[audio_id]["recebido"] = True
@@ -3928,6 +4026,8 @@ def websocket_esp32(ws):
 
                 with lock:
                     dados_audio = audios.get(audio_id)
+                    if dados_audio is not None and dados_audio.get("cancelado_reset"):
+                        continue
                     eh_menu = bool(dados_audio.get("menu", False)) if dados_audio else False
 
                     if dados_audio is not None:
