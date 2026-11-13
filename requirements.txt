@@ -3,3 +3,4 @@ gunicorn==23.0.0
 flask-sock
 imageio-ffmpeg
 openai
+matplotlib
