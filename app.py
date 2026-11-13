@@ -2951,6 +2951,11 @@ PADRAO_RESOLUCAO = (
     "Finalize com ∇·F = resultado final diretamente simplificado e ordenado "
     "(ex.: ∇·F = 2x + 2y + 2z), sem escrever antes a soma em outra ordem. "
     "Atenção: Fₓ sozinho NÃO é a derivada e Rₓ designa rotacional, nunca divergente. "
+    "Para exercícios de função potencial escalar, escreva OBRIGATORIAMENTE o título Função potencial em linha própria antes dos cálculos. "
+    "Nunca pule a operação de integração: após ∂φ/∂x = P, mostre φ = ∫(P) dx e só então a expressão integrada. "
+    "Quando determinar g(y,z) a partir de ∂g/∂y = Q, mostre g(y,z) = ∫(Q) dy antes do resultado. "
+    "Se houver integração em z, mostre a integral correspondente. Para integrais indefinidas, use ∫(expressão) dx, dy ou dz, sem INT{}{}. "
+    "Use φ ou ϕ de maneira consistente, respeitando a notação do enunciado; não omita constantes ou funções de integração. "
     "EXCEÇÃO IMPORTANTE: para derivadas difíceis, regras do produto, cadeia, quociente, "
     "derivadas implícitas, integrais ou manipulações não triviais, mantenha as etapas "
     "intermediárias realmente necessárias para verificar a conta. "
@@ -3020,7 +3025,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
                 'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
-                'Inclua os títulos Rotacional e Divergente quando ambas as operações forem solicitadas. '
+                'Inclua os títulos Rotacional e Divergente quando ambas as operações forem solicitadas. Para função potencial, inclua o título Função potencial. Mostre cada integral indefinida explicitamente (por exemplo φ = ∫(2xy+z²) dx) ANTES do resultado integrado; mostre também g(y,z) = ∫(2yz) dy quando aplicável. Não pule integrais. '
                 'No rotacional, cada componente simples deve ter apenas a linha com as duas derivadas '
                 'e a linha seguinte com os resultados e a subtração, sem derivadas individuais. '
                 'No divergente, use ∂Fₓ/∂x = parcelas = resultado (ex.: 2y + 0 = 2y), ∂Fᵧ/∂y e ∂F_z/∂z analogamente; mostre os termos nulos. Não use parênteses em torno de Fₓ, Fᵧ ou F_z: nunca ∂(Fₓ)/∂x. Resultado ∇·F diretamente ordenado, sem repetir soma desordenada. Não confunda com Rₓ do rotacional. '
@@ -3354,6 +3359,7 @@ def _latex_para_imagem(escrita, titulo, destino):
         'delimitadores $ ou \\[. '
         'Mathtext do matplotlib será usado, portanto produza comandos simples. '
         'Não agrupe operações de linhas distintas. '
+        'Preserve TODAS as linhas de integração, incluindo integrais indefinidas ∫(expressão) dx, dy ou dz, usando o comando int no LaTeX. Preserve o título Função potencial como TXT. '
         'Em derivadas de componentes, represente F_x, F_y, F_z diretamente no numerador: '
         r'use \frac{\partial F_x}{\partial x}, NUNCA \frac{\partial(F_x)}{\partial x}; '
         'não adicione parênteses que não existam no texto original. '
@@ -3372,6 +3378,15 @@ def _latex_para_imagem(escrita, titulo, destino):
             itens.append(('text', linha[4:].strip()))
     if not itens:
         raise ValueError('Conversão matemática sem linhas válidas.')
+    # Título obrigatório na imagem quando a resolução realmente calcula potencial.
+    # A conversão em LaTeX pode omitir títulos, por isso a inserção é feita no PNG.
+    import re as _re_pot
+    potencial = bool(_re_pot.search(r'(?:[φϕ]|\\(?:var)?phi)', escrita)) and bool(
+        _re_pot.search(r'(?:[∂∫]|\\(?:partial|int)|função potencial|funcao potencial)', escrita, _re_pot.I))
+    if potencial:
+        tem_titulo = any(tipo == 'text' and _re_pot.search(r'fun[cç][aã]o\s+potencial|potencial\s+escalar', valor, _re_pot.I) for tipo, valor in itens)
+        if not tem_titulo:
+            itens.insert(0, ('text', 'Função potencial'))
 
     # Insere os títulos no próprio PNG, independentemente de a IA esquecê-los.
     # Detecta a notação matemática (R_x, R_y, R_z, nabla cross/dot,
@@ -3477,7 +3492,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, quando solicitadas. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
+                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, quando solicitadas. Para função potencial, coloque o título Função potencial em uma linha separada. Ao integrar, escreva explicitamente φ = ∫(expressão) dx antes do resultado integrado; faça o mesmo para g(y,z) = ∫(expressão) dy e integrais seguintes quando necessárias. Nunca pule a integral que gera uma função. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
                                 "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
@@ -4277,4 +4292,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=5000
     )
-    
