@@ -2900,31 +2900,48 @@ ARQUIVO_EXEMPLOS = os.path.join(PASTA_TREINAMENTO, "exemplos_aprovados.json")
 exemplos_lock = threading.RLock()
 
 PADRAO_RESOLUCAO = (
-    "Resolva SOMENTE o exercício solicitado, com máxima correção e mínimo de redundância. "
-    "Use o método matemático mais curto e correto, mas MOSTRE TODAS as substituições, "
-    "derivadas, integrações e simplificações essenciais que justificam o resultado. "
-    "Comece diretamente pela primeira operação matemática útil. Não apresente uma fórmula "
-    "genérica que será imediatamente repetida com os dados concretos. Não crie um passo "
-    "para anunciar procedimento ou repetir uma conclusão. Passos são operações novas. "
-    "Continue cadeias de igualdades usando apenas =, sem repetir o lado esquerdo. "
-    "Não monte matriz se o método direto for mais simples; se uma matriz for realmente usada, "
-    "represente seus elementos integralmente. Separe subitens quando existirem. "
-    "Mantenha notação matemática legível, preferindo texto Unicode (∇, ∂, ∫, ×, ·, →). "
-    "Não invente dados ilegíveis. Retorne SOMENTE a resolução escrita, com cálculos e resultados."
+    "Resolva somente o exercício solicitado, em português brasileiro, com cálculos corretos. "
+    "FORMATO OBRIGATÓRIO: texto matemático simples e Unicode, NUNCA LaTeX, Markdown matemático "
+    "ou comandos como \\frac, \\partial, \\nabla, \\begin, \\[ e símbolos de dólar. "
+    "Use ², ³, ∂, ∇, ×, · e −. Escreva derivadas como ∂(expressão)/∂x. "
+    "Quebre linhas para facilitar a leitura; NÃO compacte vários cálculos diferentes "
+    "em uma única linha ou tupla gigante. "
+    "Comece diretamente pelas contas, sem repetir uma fórmula genérica que será substituída. "
+    "Para derivadas parciais, mostre a expressão original, qual variável está sendo derivada, "
+    "os termos que zeram e o resultado: por exemplo, ∂(2xz+y²)/∂y = 0+2y = 2y. "
+    "No rotacional, calcule Rₓ, Rᵧ e R_z SEPARADAMENTE, exibindo as duas derivadas "
+    "de cada componente antes de subtrair. No divergente, mostre as três derivadas "
+    "separadamente antes da soma final. Aplique a mesma clareza a outras operações. "
+    "Evite explicações longas e passos preparatórios redundantes, mas NUNCA pule contas "
+    "que ajudem o estudante a acompanhar a solução. Não force matrizes se houver método "
+    "direto mais simples. Separe itens e dê o resultado final. Não invente dados ilegíveis. "
+    "Para integrais definidas, use INT{inferior}{superior} conforme o formato do servidor. "
+    "Retorne SOMENTE a resolução escrita."
 )
 
 EXEMPLO_APROVADO = (
-    "EXEMPLO DE ESTILO, não é o exercício a resolver. Para "
-    "F=(2xy+z², x²+2yz, 2xz+y²), rotacional e divergente:\n"
-    "Passo 1 — Rotacional\n"
-    "Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z = 2y−2y = 0\n"
-    "Rᵧ = ∂(2xy+z²)/∂z − ∂(2xz+y²)/∂x = 2z−2z = 0\n"
-    "R_z = ∂(x²+2yz)/∂x − ∂(2xy+z²)/∂y = 2x−2x = 0\n"
-    "∇×F = (0,0,0)\n"
-    "Passo 2 — Divergente\n"
-    "∇·F = ∂(2xy+z²)/∂x + ∂(x²+2yz)/∂y + ∂(2xz+y²)/∂z\n"
-    "= 2y+2z+2x\n= 2x+2y+2z\n"
-    "Não inclua antes disso uma fórmula geral abstrata nem um passo para dizer que o rotacional é nulo."
+    "EXEMPLO DE ESTILO, NÃO COPIE RESULTADOS PARA OUTROS EXERCÍCIOS.\n"
+    "Para F=(2xy+z², x²+2yz, 2xz+y²):\n"
+    "Rotacional\n"
+    "Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z\n"
+    "∂(2xz+y²)/∂y = 0+2y = 2y\n"
+    "∂(x²+2yz)/∂z = 0+2y = 2y\n"
+    "Rₓ = 2y−2y = 0\n\n"
+    "Rᵧ = ∂(2xy+z²)/∂z − ∂(2xz+y²)/∂x\n"
+    "∂(2xy+z²)/∂z = 0+2z = 2z\n"
+    "∂(2xz+y²)/∂x = 2z+0 = 2z\n"
+    "Rᵧ = 2z−2z = 0\n\n"
+    "R_z = ∂(x²+2yz)/∂x − ∂(2xy+z²)/∂y\n"
+    "∂(x²+2yz)/∂x = 2x+0 = 2x\n"
+    "∂(2xy+z²)/∂y = 2x+0 = 2x\n"
+    "R_z = 2x−2x = 0\n"
+    "∇×F = (0,0,0)\n\n"
+    "Divergente\n"
+    "∂(2xy+z²)/∂x = 2y\n"
+    "∂(x²+2yz)/∂y = 2z\n"
+    "∂(2xz+y²)/∂z = 2x\n"
+    "∇·F = 2y+2z+2x = 2x+2y+2z\n"
+    "Nunca use comandos LaTeX nem agrupe todas as derivadas numa linha."
 )
 
 def carregar_exemplos_aprovados():
@@ -2968,7 +2985,9 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
                 'NUNCA elimine derivadas, substituições ou cálculos necessários para entender '
-                'de onde veio o resultado. Preserve o método mais simples e a notação legível. '
+                'de onde veio o resultado. Mostre derivadas parciais separadamente, incluindo termos zerados quando úteis. '
+                'Não use LaTeX ou comandos como frac, partial, nabla; somente texto Unicode legível. '
+                'Preserve o método mais simples e a notação legível. '
                 'Se não puder conferir a matemática, responda somente REVISAO_INSEGURA. '
                 'Devolva SOMENTE a resolução escrita corrigida.\n\n' +
                 PADRAO_RESOLUCAO + '\n\nRESOLUÇÃO ORIGINAL:\n' + escrita)},
@@ -3272,9 +3291,9 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Mostre fórmulas, substituições e resposta final. "
+                                "Mostre operações intermediárias em linhas separadas, inclusive derivadas individuais e termos zerados quando úteis. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
-                                "Escreva em texto simples, sem Markdown ou LaTeX. REGRA OBRIGATÓRIA: "
+                                "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
                                 "por exemplo INT{y²}{1} INT{0}{1−x} 1 dz dx. "
                                 "NUNCA use integrais com limites Unicode colados, como ∫ᵧ²¹. "
@@ -3965,7 +3984,7 @@ small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio
 <label>Número ou item a resolver (opcional): <input id="numero" placeholder="Ex.: 1 ou 1a" style="width:150px"></label>
 <p><button id="resolver" type="submit">Resolver e mostrar narração</button></p></form><div id="estado" role="status"></div></section>
 <section id="resultado" style="display:none">
-<div class="painel"><h2>1. Resolução matemática escrita</h2><pre id="escrita"></pre></div>
+<div class="painel"><h2>1. Resolução matemática escrita</h2><small>Contas em linhas separadas, sem códigos LaTeX.</small><pre id="escrita"></pre></div>
 <div class="painel"><h2>Correção do padrão da IA</h2>
 <small>Se a resolução estiver diferente do esperado, cole a versão correta e registre o erro. Os exemplos aprovados serão usados nas próximas questões, inclusive da ESP32.</small>
 <p><label>Resolução esperada</label><textarea id="esperada" placeholder="Cole aqui a resolução corrigida e aprovada"></textarea></p>
