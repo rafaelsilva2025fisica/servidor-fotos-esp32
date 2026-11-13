@@ -2901,47 +2901,43 @@ exemplos_lock = threading.RLock()
 
 PADRAO_RESOLUCAO = (
     "Resolva somente o exercício solicitado, em português brasileiro, com cálculos corretos. "
-    "FORMATO OBRIGATÓRIO: texto matemático simples e Unicode, NUNCA LaTeX, Markdown matemático "
-    "ou comandos como \\frac, \\partial, \\nabla, \\begin, \\[ e símbolos de dólar. "
+    "FORMATO DA RESOLUÇÃO ESCRITA: texto Unicode legível, sem LaTeX ou Markdown matemático. "
     "Use ², ³, ∂, ∇, ×, · e −. Escreva derivadas como ∂(expressão)/∂x. "
-    "Quebre linhas para facilitar a leitura; NÃO compacte vários cálculos diferentes "
-    "em uma única linha ou tupla gigante. "
-    "Comece diretamente pelas contas, sem repetir uma fórmula genérica que será substituída. "
-    "Para derivadas parciais, mostre a expressão original, qual variável está sendo derivada, "
-    "os termos que zeram e o resultado: por exemplo, ∂(2xz+y²)/∂y = 0+2y = 2y. "
-    "No rotacional, calcule Rₓ, Rᵧ e R_z SEPARADAMENTE, exibindo as duas derivadas "
-    "de cada componente antes de subtrair. No divergente, mostre as três derivadas "
-    "separadamente antes da soma final. Aplique a mesma clareza a outras operações. "
-    "Evite explicações longas e passos preparatórios redundantes, mas NUNCA pule contas "
-    "que ajudem o estudante a acompanhar a solução. Não force matrizes se houver método "
-    "direto mais simples. Separe itens e dê o resultado final. Não invente dados ilegíveis. "
+    "Comece diretamente pela substituição nas operações solicitadas, sem repetir fórmula geral abstrata. "
+    "REGRA DE CONCISÃO: em derivadas parciais simples de polinômios, faça a derivação mentalmente "
+    "e passe DIRETAMENTE da expressão de derivadas para a linha de subtração ou soma dos resultados. "
+    "No rotacional, para cada componente Rₓ, Rᵧ e R_z, use SOMENTE duas linhas: "
+    "primeiro a expressão com as duas derivadas parciais e depois a igualdade "
+    "com os resultados derivados e a simplificação final. "
+    "Exemplo: Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z; na linha seguinte Rₓ = 2y − 2y = 0. "
+    "NÃO escreva separadamente ∂(2xz+y²)/∂y = 0+2y nem ∂(x²+2yz)/∂z = 0+2y "
+    "quando as derivadas forem imediatas. "
+    "No divergente, mostre a substituição das derivadas e, na linha seguinte, "
+    "a soma dos valores derivados e o resultado. "
+    "EXCEÇÃO IMPORTANTE: para derivadas difíceis, regras do produto, cadeia, quociente, "
+    "derivadas implícitas, integrais ou manipulações não triviais, mantenha as etapas "
+    "intermediárias realmente necessárias para verificar a conta. "
+    "Não omita sinais, limites, substituições essenciais nem resultados. "
+    "Não use matrizes para rotacional se o cálculo direto for mais simples. "
     "Para integrais definidas, use INT{inferior}{superior} conforme o formato do servidor. "
     "Retorne SOMENTE a resolução escrita."
 )
 
 EXEMPLO_APROVADO = (
-    "EXEMPLO DE ESTILO, NÃO COPIE RESULTADOS PARA OUTROS EXERCÍCIOS.\n"
+    "EXEMPLO DE ESTILO COMPACTO, NÃO COPIE RESULTADOS PARA OUTROS EXERCÍCIOS.\n"
     "Para F=(2xy+z², x²+2yz, 2xz+y²):\n"
     "Rotacional\n"
     "Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z\n"
-    "∂(2xz+y²)/∂y = 0+2y = 2y\n"
-    "∂(x²+2yz)/∂z = 0+2y = 2y\n"
-    "Rₓ = 2y−2y = 0\n\n"
+    "Rₓ = 2y − 2y = 0\n\n"
     "Rᵧ = ∂(2xy+z²)/∂z − ∂(2xz+y²)/∂x\n"
-    "∂(2xy+z²)/∂z = 0+2z = 2z\n"
-    "∂(2xz+y²)/∂x = 2z+0 = 2z\n"
-    "Rᵧ = 2z−2z = 0\n\n"
+    "Rᵧ = 2z − 2z = 0\n\n"
     "R_z = ∂(x²+2yz)/∂x − ∂(2xy+z²)/∂y\n"
-    "∂(x²+2yz)/∂x = 2x+0 = 2x\n"
-    "∂(2xy+z²)/∂y = 2x+0 = 2x\n"
-    "R_z = 2x−2x = 0\n"
+    "R_z = 2x − 2x = 0\n"
     "∇×F = (0,0,0)\n\n"
     "Divergente\n"
-    "∂(2xy+z²)/∂x = 2y\n"
-    "∂(x²+2yz)/∂y = 2z\n"
-    "∂(2xz+y²)/∂z = 2x\n"
-    "∇·F = 2y+2z+2x = 2x+2y+2z\n"
-    "Nunca use comandos LaTeX nem agrupe todas as derivadas numa linha."
+    "∇·F = ∂(2xy+z²)/∂x + ∂(x²+2yz)/∂y + ∂(2xz+y²)/∂z\n"
+    "∇·F = 2y + 2z + 2x = 2x + 2y + 2z\n"
+    "Derivadas triviais são calculadas diretamente; mantenha passos para operações difíceis."
 )
 
 def carregar_exemplos_aprovados():
@@ -2984,8 +2980,9 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'Revise esta resolução comparando-a à FOTO ORIGINAL. Corrija erros matemáticos, '
                 'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
-                'NUNCA elimine derivadas, substituições ou cálculos necessários para entender '
-                'de onde veio o resultado. Mostre derivadas parciais separadamente, incluindo termos zerados quando úteis. '
+                'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
+                'No rotacional, cada componente simples deve ter apenas a linha com as duas derivadas '
+                'e a linha seguinte com os resultados e a subtração, sem derivadas individuais. '
                 'Não use LaTeX ou comandos como frac, partial, nabla; somente texto Unicode legível. '
                 'Preserve o método mais simples e a notação legível. '
                 'Se não puder conferir a matemática, responda somente REVISAO_INSEGURA. '
@@ -3372,7 +3369,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Mostre operações intermediárias em linhas separadas, inclusive derivadas individuais e termos zerados quando úteis. "
+                                "Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Para o divergente, mostre as derivadas na fórmula e a soma direta dos resultados. Em cálculos difíceis, preserve etapas essenciais. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
                                 "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
@@ -4065,7 +4062,7 @@ small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio
 <label>Número ou item a resolver (opcional): <input id="numero" placeholder="Ex.: 1 ou 1a" style="width:150px"></label>
 <p><button id="resolver" type="submit">Resolver e mostrar narração</button></p></form><div id="estado" role="status"></div></section>
 <section id="resultado" style="display:none">
-<div class="painel"><h2>1. Resolução em imagem</h2><small>Frações verticais, derivadas e contas separadas. PNG gerado no servidor.</small><p><a id="baixarImagem" href="#" target="_blank">Abrir imagem em tamanho original</a></p><img id="imagemResolucao" alt="Resolução matemática renderizada" style="display:block;max-height:none;width:100%;height:auto;background:white;border-radius:8px"></div>
+<div class="painel"><h2>1. Resolução em imagem</h2><small>Frações verticais e cálculos diretos, sem passos triviais repetidos. PNG gerado no servidor.</small><p><a id="baixarImagem" href="#" target="_blank">Abrir imagem em tamanho original</a></p><img id="imagemResolucao" alt="Resolução matemática renderizada" style="display:block;max-height:none;width:100%;height:auto;background:white;border-radius:8px"></div>
 <div class="painel"><h2>Resolução em texto (cópia)</h2><pre id="escrita"></pre></div>
 <div class="painel"><h2>Correção do padrão da IA</h2>
 <small>Se a resolução estiver diferente do esperado, cole a versão correta e registre o erro. Os exemplos aprovados serão usados nas próximas questões, inclusive da ESP32.</small>
