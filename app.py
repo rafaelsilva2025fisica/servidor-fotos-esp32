@@ -2883,7 +2883,26 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
 
 
 # Mesma instrução de narração usada na ESP32 e no laboratório web.
-PROMPT_DITADO_EXERCICIO = 'Observe novamente a foto original e resolva SOMENTE o exercício {numero}. Leia o enunciado diretamente da imagem e confira os cálculos. Produza um DITADO MATEMÁTICO EM PORTUGUÊS, o mais resumido possível, para a pessoa copiar a resolução no papel. Não existe meta nem limite de duração ou quantidade de palavras. Priorize concisão máxima, sem omitir cálculos ou resultados indispensáveis. Não repita o enunciado, não faça introduções teóricas, comentários, justificativas extensas ou repetições. Dite apenas as fórmulas, montagens, transformações essenciais e resultados, na ordem correta; não pule passagens necessárias para reproduzir a conta. Separe itens a, b, c, d etc. quando existirem, dizendo o item antes da resolução correspondente. Para toda letra com seta de vetor, pronuncie exatamente: letra vetorial maiúscula F, ou letra vetorial minúscula r, conforme o caso. Preserve a letra e sua caixa. Para letras sem seta, identifique maiúscula ou minúscula quando for necessário distingui-las. Pronuncie o símbolo ∇ como sinal de gradiente, nunca como nabla. Pronuncie × entre vetores como sinal de multiplicação vetorial; pronuncie · entre vetores como sinal de multiplicação escalar. Diferencie ambos de multiplicação numérica comum. Para | no começo de módulo, diga barra inicial de módulo; para | no fim, diga barra final de módulo. Preserve estruturas aninhadas. Escolha sempre o método matematicamente correto mais curto. Não monte matriz ou determinante quando a operação puder ser resolvida diretamente de forma mais simples, como no cálculo direto do rotacional. Só quando uma matriz realmente for utilizada na resolução, diga apenas Vamos montar a matriz. Em seguida leia exatamente os elementos escritos, linha por linha, preservando sinais, letras, índices e posições. Ao terminar diga Matriz terminada. Não explique antecipadamente as linhas ou a ordem da matriz; não diga determinante de ordem três nem frases como na primeira linha colocamos. Para frações, raízes, parênteses e colchetes, indique abertura e fechamento para que a expressão possa ser copiada sem ambiguidade. Para integrais, informe os limites, leia a integral completa na ordem escrita, depois apenas as transformações necessárias e o resultado. Respeite a eliminação dos sinais de integração a cada variável integrada. Para diferenciais finais dx, dy, dz, dr e dθ, pronuncie del xis, del ipsilon, del zê, del erre e del teta, respectivamente. Em mudança de coordenadas, substituição, integração por partes e outras técnicas, apresente somente as relações indispensáveis e as contas efetivamente usadas. Em uma sequência de igualdades, escreva a expressão inicial somente uma vez; continue cada transformação com outro sinal de igualdade, sem repetir o lado esquerdo. Exemplo: rotacional de F = i(2y-2y) - j(2z-2z) + k(2x-2x) = (0,0,0). Não recomece com rotacional de F = (0,0,0). Use Próxima linha apenas quando necessário para separar expressões distintas. Não narre cada operação trivial nem repita fórmulas inalteradas. Não use Markdown, LaTeX, tabelas ou descrições de formatação; escreva diretamente as palavras que deverão ser pronunciadas. Confira resultados, unidades, sinais e limites. Se a imagem não permitir leitura segura, informe isso sem inventar dados. Termine com Resposta final e o resultado correto. Não resolva outros exercícios.'
+PROMPT_DITADO_EXERCICIO = (
+    "Leia literalmente a resolução matemática do exercício {numero}, respeitando exatamente "
+    "os símbolos, a ordem visual e as quebras de linha. Não explique, não recalcule e não "
+    "invente passos. Fale os títulos das seções, como Rotacional e Divergente. "
+    "A cada nova linha de expressão matemática diga exatamente: Linha de baixo. "
+    "Nunca diga Pula linha nem Próxima linha. "
+    "Leia TODOS os sinais explicitamente: + = sinal mais; − ou - = sinal menos; "
+    "= = sinal de igual; × = sinal de multiplicação vetorial quando for entre vetores, "
+    "caso contrário sinal de multiplicação; · = sinal de multiplicação escalar entre vetores; "
+    "÷ = sinal de divisão. Não omita sinais dentro de parênteses, frações ou resultados. "
+    "Pronuncie ∂ como dél, jamais derivada parcial. "
+    "Para cada fração vertical diga: Fração, numerador, [expressão de cima], "
+    "denominador, [expressão de baixo], fim da fração. "
+    "Leia parênteses como abre parênteses e fecha parênteses, expoentes como ao quadrado, "
+    "ao cubo etc., e índices como subscrito xis, subscrito ípsilon, subscrito zê. "
+    "Leia x como xis, y como ípsilon e z como zê. "
+    "Para ∇ diga sinal de gradiente. Leia módulos e integrais indicando limites "
+    "e delimitadores necessários. Não use Markdown nem LaTeX; entregue somente as palavras "
+    "que serão pronunciadas. Se o enunciado ou a resolução estiver ilegível, não invente."
+)
 
 def prompt_ditado_exercicio(numero):
     return PROMPT_DITADO_EXERCICIO.replace("{numero}", str(numero))
@@ -3003,20 +3022,40 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     if not escrita or escrita == 'REVISAO_INSEGURA':
         raise ValueError('REVISAO_INSEGURA')
 
-    # A narração nasce da resolução aprovada, não o contrário.
+    # A narração acompanha a resolução escrita, linha por linha, sem alterar a matemática.
+    # As quebras são enumeradas para reduzir a chance de a IA pular a locução de transição.
+    linhas_escritas = [linha.strip() for linha in escrita.splitlines() if linha.strip()]
+    escrita_para_narrar = "\n".join(
+        f"LINHA {indice}: {linha}" for indice, linha in enumerate(linhas_escritas, 1)
+    )
     terceira = openai_client.responses.create(model=OPENAI_MODEL,
         input=[{'role':'user','content':[{'type':'input_text','text':(
-            'Converta a RESOLUÇÃO ESCRITA abaixo em texto LITERAL para sintetizador de voz. '
-            'NÃO recalcule, não altere, não acrescente nem omita operações, resultados ou passos. '
-            'Mantenha a MESMA ordem e leia somente o necessário para copiar as contas. '
-            'Use letra vetorial maiúscula/minúscula para letras com seta; ∇ = sinal de gradiente; '
-            '× entre vetores = sinal de multiplicação vetorial; · = sinal de multiplicação escalar; '
-            '| de abertura/fechamento = barra inicial/final de módulo. '
-            'Se houver matriz na resolução, diga Vamos montar a matriz, leia os elementos '
-            'linha a linha, e diga Matriz terminada. Não introduza matriz inexistente. '
-            'Para igualdades sucessivas diga igual, sem repetir o lado esquerdo. '
-            'Sem Markdown ou LaTeX. Responda SOMENTE as palavras que serão faladas.\n\n'
-            'RESOLUÇÃO ESCRITA APROVADA:\n' + escrita)}]}])
+            'Transforme a RESOLUÇÃO ESCRITA em narração LITERAL, sem resolver novamente. '
+            'Cada LINHA numerada corresponde a uma linha visual da imagem. Não fale os números '
+            'de identificação LINHA 1, LINHA 2 etc. Antes de CADA linha depois da primeira, '
+            'diga exatamente Linha de baixo. Inclusive antes de um novo título ou resultado. '
+            'Fale os títulos Rotacional e Divergente quando aparecerem. '
+            'Leia todos os sinais: + como sinal mais, − ou - como sinal menos, '
+            '= como sinal de igual, × como sinal de multiplicação vetorial quando aplicável, '
+            '· como sinal de multiplicação escalar quando aplicável e ÷ como sinal de divisão. '
+            'Pronuncie ∂ como dél, NUNCA derivada parcial. '
+            'Para cada fração diga Fração, numerador, conteúdo de cima, denominador, '
+            'conteúdo de baixo, fim da fração, preservando cada sinal em ambos. '
+            'Leia ( como abre parênteses, ) como fecha parênteses, ² como ao quadrado, '
+            '³ como ao cubo, x como xis, y como ípsilon, z como zê. '
+            'Leia Rₓ como érre subscrito xis, Rᵧ como érre subscrito ípsilon, '
+            'R_z como érre subscrito zê. Para ∇ diga sinal de gradiente. '
+            'Não acrescente explicações, justificativas, contas nem palavras introdutórias. '
+            'Não diga Pula linha nem Próxima linha. Sem Markdown ou LaTeX. '
+            'Responda SOMENTE o texto que será falado. '
+            'EXEMPLO DE LEITURA: Rₓ = 6y − 4y = 2y vira '
+            'érre subscrito xis, sinal de igual, seis ípsilon, sinal menos, '
+            'quatro ípsilon, sinal de igual, dois ípsilon. '
+            'EXEMPLO DE FRAÇÃO: ∂(5xz+3y²)/∂y vira '
+            'fração, numerador, dél, abre parênteses, cinco xis zê, sinal mais, '
+            'três ípsilon ao quadrado, fecha parênteses, denominador, dél ípsilon, fim da fração. '
+            'RESOLUÇÃO ESCRITA APROVADA (LINHAS VISUAIS):\n' + escrita_para_narrar
+        )}]}])
     narracao = (terceira.output_text or '').strip()
     if not narracao:
         raise ValueError('A IA não produziu o texto para áudio.')
