@@ -2900,49 +2900,42 @@ ARQUIVO_EXEMPLOS = os.path.join(PASTA_TREINAMENTO, "exemplos_aprovados.json")
 exemplos_lock = threading.RLock()
 
 PADRAO_RESOLUCAO = (
-    "Resolva somente o exercício solicitado, em português brasileiro, com cálculos corretos. "
-    "FORMATO OBRIGATÓRIO: texto matemático simples e Unicode, NUNCA LaTeX, Markdown matemático "
-    "ou comandos como \\frac, \\partial, \\nabla, \\begin, \\[ e símbolos de dólar. "
-    "Use ², ³, ∂, ∇, ×, · e −. Escreva derivadas como ∂(expressão)/∂x. "
-    "Quebre linhas para facilitar a leitura; NÃO compacte vários cálculos diferentes "
-    "em uma única linha ou tupla gigante. "
-    "Comece diretamente pelas contas, sem repetir uma fórmula genérica que será substituída. "
-    "Para derivadas parciais, mostre a expressão original, qual variável está sendo derivada, "
-    "os termos que zeram e o resultado: por exemplo, ∂(2xz+y²)/∂y = 0+2y = 2y. "
-    "No rotacional, calcule Rₓ, Rᵧ e R_z SEPARADAMENTE, exibindo as duas derivadas "
-    "de cada componente antes de subtrair. No divergente, mostre as três derivadas "
-    "separadamente antes da soma final. Aplique a mesma clareza a outras operações. "
-    "Evite explicações longas e passos preparatórios redundantes, mas NUNCA pule contas "
-    "que ajudem o estudante a acompanhar a solução. Não force matrizes se houver método "
-    "direto mais simples. Separe itens e dê o resultado final. Não invente dados ilegíveis. "
-    "Para integrais definidas, use INT{inferior}{superior} conforme o formato do servidor. "
-    "Retorne SOMENTE a resolução escrita."
+    "Resolva somente o exercício solicitado, em português brasileiro. "
+    "Use notação matemática LaTeX CORRETA para frações verticais, derivadas, integrais, raízes e vetores. "
+    "Cada linha de cálculo deve conter uma expressão LaTeX delimitada por \\( e \\), sem ambientes complexos. "
+    "Para derivadas use \\frac{\\partial(expressão)}{\\partial y}; para frações use \\frac{numerador}{denominador}. "
+    "Não escreva frações com barra lateral como ∂(...)/∂y. "
+    "Separe cada derivada em uma linha, mostre os termos que zeram quando úteis e só depois subtraia ou some. "
+    "Comece diretamente pelas contas, sem repetir fórmula genérica desnecessária. "
+    "No rotacional calcule as componentes separadamente. No divergente, as três derivadas separadas. "
+    "Use texto curto apenas para títulos e distinções. Não pule cálculos necessários. "
+    "Não invente dados ilegíveis. Devolva somente a resolução escrita."
 )
 
-EXEMPLO_APROVADO = (
-    "EXEMPLO DE ESTILO, NÃO COPIE RESULTADOS PARA OUTROS EXERCÍCIOS.\n"
-    "Para F=(2xy+z², x²+2yz, 2xz+y²):\n"
-    "Rotacional\n"
-    "Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z\n"
-    "∂(2xz+y²)/∂y = 0+2y = 2y\n"
-    "∂(x²+2yz)/∂z = 0+2y = 2y\n"
-    "Rₓ = 2y−2y = 0\n\n"
-    "Rᵧ = ∂(2xy+z²)/∂z − ∂(2xz+y²)/∂x\n"
-    "∂(2xy+z²)/∂z = 0+2z = 2z\n"
-    "∂(2xz+y²)/∂x = 2z+0 = 2z\n"
-    "Rᵧ = 2z−2z = 0\n\n"
-    "R_z = ∂(x²+2yz)/∂x − ∂(2xy+z²)/∂y\n"
-    "∂(x²+2yz)/∂x = 2x+0 = 2x\n"
-    "∂(2xy+z²)/∂y = 2x+0 = 2x\n"
-    "R_z = 2x−2x = 0\n"
-    "∇×F = (0,0,0)\n\n"
-    "Divergente\n"
-    "∂(2xy+z²)/∂x = 2y\n"
-    "∂(x²+2yz)/∂y = 2z\n"
-    "∂(2xz+y²)/∂z = 2x\n"
-    "∇·F = 2y+2z+2x = 2x+2y+2z\n"
-    "Nunca use comandos LaTeX nem agrupe todas as derivadas numa linha."
-)
+EXEMPLO_APROVADO = r"""EXEMPLO DE ESTILO (não copie resultados para outros exercícios):
+Rotacional
+\(R_x=\frac{\partial(2xz+y^2)}{\partial y}-\frac{\partial(x^2+2yz)}{\partial z}\)
+\(\frac{\partial(2xz+y^2)}{\partial y}=0+2y=2y\)
+\(\frac{\partial(x^2+2yz)}{\partial z}=0+2y=2y\)
+\(R_x=2y-2y=0\)
+
+\(R_y=\frac{\partial(2xy+z^2)}{\partial z}-\frac{\partial(2xz+y^2)}{\partial x}\)
+\(\frac{\partial(2xy+z^2)}{\partial z}=0+2z=2z\)
+\(\frac{\partial(2xz+y^2)}{\partial x}=2z+0=2z\)
+\(R_y=2z-2z=0\)
+
+\(R_z=\frac{\partial(x^2+2yz)}{\partial x}-\frac{\partial(2xy+z^2)}{\partial y}\)
+\(\frac{\partial(x^2+2yz)}{\partial x}=2x+0=2x\)
+\(\frac{\partial(2xy+z^2)}{\partial y}=2x+0=2x\)
+\(R_z=2x-2x=0\)
+\(\nabla\times\vec F=(0,0,0)\)
+
+Divergente
+\(\frac{\partial(2xy+z^2)}{\partial x}=2y+0=2y\)
+\(\frac{\partial(x^2+2yz)}{\partial y}=0+2z=2z\)
+\(\frac{\partial(2xz+y^2)}{\partial z}=2x+0=2x\)
+\(\nabla\cdot\vec F=2y+2z+2x=2x+2y+2z\)
+"""
 
 def carregar_exemplos_aprovados():
     with exemplos_lock:
@@ -2986,7 +2979,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
                 'NUNCA elimine derivadas, substituições ou cálculos necessários para entender '
                 'de onde veio o resultado. Mostre derivadas parciais separadamente, incluindo termos zerados quando úteis. '
-                'Não use LaTeX ou comandos como frac, partial, nabla; somente texto Unicode legível. '
+                'Use LaTeX matemático correto com frações verticais, delimitando cada linha com \\( e \\). '
                 'Preserve o método mais simples e a notação legível. '
                 'Se não puder conferir a matemática, responda somente REVISAO_INSEGURA. '
                 'Devolva SOMENTE a resolução escrita corrigida.\n\n' +
@@ -3009,7 +3002,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
             'Se houver matriz na resolução, diga Vamos montar a matriz, leia os elementos '
             'linha a linha, e diga Matriz terminada. Não introduza matriz inexistente. '
             'Para igualdades sucessivas diga igual, sem repetir o lado esquerdo. '
-            'Sem Markdown ou LaTeX. Responda SOMENTE as palavras que serão faladas.\n\n'
+            'Converta todos os comandos LaTeX em palavras naturais; nunca pronuncie frac, partial ou comandos. Responda SOMENTE as palavras que serão faladas.\n\n'
             'RESOLUÇÃO ESCRITA APROVADA:\n' + escrita)}]}])
     narracao = (terceira.output_text or '').strip()
     if not narracao:
@@ -3219,6 +3212,17 @@ def _partes_matematicas(linha):
             pos = inicio + 4
     return partes
 
+
+def _svg_fracoes_linha(linha, y, margem=55):
+    """Renderiza frações LaTeX simples em SVG nativo, sem JavaScript externo."""
+    import re
+    linha = linha.replace(r'\(', '').replace(r'\)', '').replace(r'\[', '').replace(r'\]', '')
+    linha = linha.replace(r'\partial', '∂').replace(r'\nabla', '∇').replace(r'\times', '×').replace(r'\cdot', '·')
+    linha = linha.replace(r'\vec F', 'F⃗').replace(r'\vec{F}', 'F⃗')
+    linha = re.sub(r'\\([a-zA-Z]+)', r'\1', linha)
+    regex = re.compile(r'\\frac\{([^{}]*)\}\{([^{}]*)\}')
+    # Keep the original LaTeX for parsing the fraction blocks.
+    return linha
 
 def _svg_resolucao(titulo, conteudo):
     """SVG com limites de integração posicionados em cima e embaixo."""
@@ -3969,7 +3973,7 @@ TREINADOR_MAX_BYTES = 12 * 1024 * 1024
 
 TREINADOR_HTML = """<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Laboratório de treinamento da IA</title>
+<title>Laboratório de treinamento da IA</title><script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},svg:{fontCache:'global'}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 <style>
 body{background:#0d1117;color:#e6edf3;font-family:Arial,sans-serif;margin:0;padding:25px}
 main{max-width:950px;margin:auto}.painel{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:22px;margin:15px 0}
@@ -3984,7 +3988,7 @@ small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio
 <label>Número ou item a resolver (opcional): <input id="numero" placeholder="Ex.: 1 ou 1a" style="width:150px"></label>
 <p><button id="resolver" type="submit">Resolver e mostrar narração</button></p></form><div id="estado" role="status"></div></section>
 <section id="resultado" style="display:none">
-<div class="painel"><h2>1. Resolução matemática escrita</h2><small>Contas em linhas separadas, sem códigos LaTeX.</small><pre id="escrita"></pre></div>
+<div class="painel"><h2>1. Resolução matemática escrita</h2><small>Frações verticais e cálculos em linhas separadas, com renderização matemática.</small><div id="escrita" style="white-space:pre-wrap;overflow-x:auto;line-height:2.4;background:#0d1117;padding:16px;border-radius:8px"></div></div>
 <div class="painel"><h2>Correção do padrão da IA</h2>
 <small>Se a resolução estiver diferente do esperado, cole a versão correta e registre o erro. Os exemplos aprovados serão usados nas próximas questões, inclusive da ESP32.</small>
 <p><label>Resolução esperada</label><textarea id="esperada" placeholder="Cole aqui a resolução corrigida e aprovada"></textarea></p>
@@ -3999,7 +4003,7 @@ imagem.addEventListener('change',()=>{if(imagem.files[0]){preview.src=URL.create
 form.addEventListener('submit',async ev=>{ev.preventDefault();const btn=document.getElementById('resolver');btn.disabled=true;document.getElementById('estado').textContent='Analisando imagem, resolvendo e revisando...';document.getElementById('resultado').style.display='none';
 try{const dados=new FormData();dados.append('imagem',imagem.files[0]);dados.append('numero',document.getElementById('numero').value);
 const resp=await fetch('/api/treinador/resolver',{method:'POST',body:dados});const json=await resp.json();if(!resp.ok)throw Error(json.erro||'Falha');
-document.getElementById('escrita').textContent=json.escrita;document.getElementById('fala').value=json.narracao;document.getElementById('resultado').style.display='block';document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
+document.getElementById('escrita').textContent=json.escrita; if(window.MathJax&&MathJax.typesetPromise)await MathJax.typesetPromise([document.getElementById('escrita')]);document.getElementById('fala').value=json.narracao;document.getElementById('resultado').style.display='block';document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
 }catch(e){document.getElementById('estado').textContent='Erro: '+e.message}finally{btn.disabled=false}});
 document.getElementById('salvarExemplo').onclick=async()=>{
 const esperado=document.getElementById('esperada').value.trim(),erro=document.getElementById('erroTreino').value.trim();
