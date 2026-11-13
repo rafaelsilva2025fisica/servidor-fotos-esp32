@@ -2889,6 +2889,115 @@ def prompt_ditado_exercicio(numero):
     return PROMPT_DITADO_EXERCICIO.replace("{numero}", str(numero))
 
 # =========================================================
+# PADRÃO COMPARTILHADO: RESOLVER -> OTIMIZAR -> NARRAR
+# Exemplos aprovados no laboratório também orientam a ESP32.
+# =========================================================
+import json
+
+PASTA_TREINAMENTO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "treinamento_ia")
+os.makedirs(PASTA_TREINAMENTO, exist_ok=True)
+ARQUIVO_EXEMPLOS = os.path.join(PASTA_TREINAMENTO, "exemplos_aprovados.json")
+exemplos_lock = threading.RLock()
+
+PADRAO_RESOLUCAO = (
+    "Resolva SOMENTE o exercício solicitado, com máxima correção e mínimo de redundância. "
+    "Use o método matemático mais curto e correto, mas MOSTRE TODAS as substituições, "
+    "derivadas, integrações e simplificações essenciais que justificam o resultado. "
+    "Comece diretamente pela primeira operação matemática útil. Não apresente uma fórmula "
+    "genérica que será imediatamente repetida com os dados concretos. Não crie um passo "
+    "para anunciar procedimento ou repetir uma conclusão. Passos são operações novas. "
+    "Continue cadeias de igualdades usando apenas =, sem repetir o lado esquerdo. "
+    "Não monte matriz se o método direto for mais simples; se uma matriz for realmente usada, "
+    "represente seus elementos integralmente. Separe subitens quando existirem. "
+    "Mantenha notação matemática legível, preferindo texto Unicode (∇, ∂, ∫, ×, ·, →). "
+    "Não invente dados ilegíveis. Retorne SOMENTE a resolução escrita, com cálculos e resultados."
+)
+
+EXEMPLO_APROVADO = (
+    "EXEMPLO DE ESTILO, não é o exercício a resolver. Para "
+    "F=(2xy+z², x²+2yz, 2xz+y²), rotacional e divergente:\n"
+    "Passo 1 — Rotacional\n"
+    "Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z = 2y−2y = 0\n"
+    "Rᵧ = ∂(2xy+z²)/∂z − ∂(2xz+y²)/∂x = 2z−2z = 0\n"
+    "R_z = ∂(x²+2yz)/∂x − ∂(2xy+z²)/∂y = 2x−2x = 0\n"
+    "∇×F = (0,0,0)\n"
+    "Passo 2 — Divergente\n"
+    "∇·F = ∂(2xy+z²)/∂x + ∂(x²+2yz)/∂y + ∂(2xz+y²)/∂z\n"
+    "= 2y+2z+2x\n= 2x+2y+2z\n"
+    "Não inclua antes disso uma fórmula geral abstrata nem um passo para dizer que o rotacional é nulo."
+)
+
+def carregar_exemplos_aprovados():
+    with exemplos_lock:
+        try:
+            with open(ARQUIVO_EXEMPLOS, 'r', encoding='utf-8') as f:
+                dados = json.load(f)
+            return dados if isinstance(dados, list) else []
+        except (OSError, ValueError):
+            return []
+
+def contexto_exemplos():
+    exemplos = carregar_exemplos_aprovados()[-5:]
+    if not exemplos:
+        return EXEMPLO_APROVADO
+    blocos = [EXEMPLO_APROVADO, "EXEMPLOS APROVADOS PELO USUÁRIO (referência de estilo, nunca copie resultados):"]
+    for ex in exemplos:
+        blocos.append("Resolução aprovada:\n" + ex['esperada'][:4000] +
+                      "\nErro a evitar: " + ex.get('erro', '')[:1200])
+    return "\n\n".join(blocos)
+
+def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
+    """Fluxo único para laboratório e exercícios escritos enviados pela ESP32."""
+    conteudo = [{'type': 'input_text', 'text': (
+        f'Leia a imagem e resolva SOMENTE o exercício {numero}.\n' +
+        PADRAO_RESOLUCAO + '\n\n' + contexto_exemplos())}]
+    if arquivo_base_id:
+        conteudo.append({'type':'input_file','file_id':arquivo_base_id})
+    conteudo.append({'type':'input_image','image_url':imagem_url})
+    primeira = openai_client.responses.create(model=OPENAI_MODEL,
+        input=[{'role':'user','content':conteudo}])
+    escrita = (primeira.output_text or '').strip()
+    if not escrita:
+        raise ValueError('A IA não produziu a resolução escrita.')
+
+    # Revisão com acesso à foto original: verifica também cortes indevidos de cálculos.
+    segunda = openai_client.responses.create(model=OPENAI_MODEL,
+        input=[{'role':'user','content':[
+            {'type':'input_text','text':(
+                'Revise esta resolução comparando-a à FOTO ORIGINAL. Corrija erros matemáticos, '
+                'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
+                'repetições do lado esquerdo e passos sem operação matemática nova. '
+                'NUNCA elimine derivadas, substituições ou cálculos necessários para entender '
+                'de onde veio o resultado. Preserve o método mais simples e a notação legível. '
+                'Se não puder conferir a matemática, responda somente REVISAO_INSEGURA. '
+                'Devolva SOMENTE a resolução escrita corrigida.\n\n' +
+                PADRAO_RESOLUCAO + '\n\nRESOLUÇÃO ORIGINAL:\n' + escrita)},
+            {'type':'input_image','image_url':imagem_url}
+        ]}])
+    escrita = (segunda.output_text or '').strip()
+    if not escrita or escrita == 'REVISAO_INSEGURA':
+        raise ValueError('REVISAO_INSEGURA')
+
+    # A narração nasce da resolução aprovada, não o contrário.
+    terceira = openai_client.responses.create(model=OPENAI_MODEL,
+        input=[{'role':'user','content':[{'type':'input_text','text':(
+            'Converta a RESOLUÇÃO ESCRITA abaixo em texto LITERAL para sintetizador de voz. '
+            'NÃO recalcule, não altere, não acrescente nem omita operações, resultados ou passos. '
+            'Mantenha a MESMA ordem e leia somente o necessário para copiar as contas. '
+            'Use letra vetorial maiúscula/minúscula para letras com seta; ∇ = sinal de gradiente; '
+            '× entre vetores = sinal de multiplicação vetorial; · = sinal de multiplicação escalar; '
+            '| de abertura/fechamento = barra inicial/final de módulo. '
+            'Se houver matriz na resolução, diga Vamos montar a matriz, leia os elementos '
+            'linha a linha, e diga Matriz terminada. Não introduza matriz inexistente. '
+            'Para igualdades sucessivas diga igual, sem repetir o lado esquerdo. '
+            'Sem Markdown ou LaTeX. Responda SOMENTE as palavras que serão faladas.\n\n'
+            'RESOLUÇÃO ESCRITA APROVADA:\n' + escrita)}]}])
+    narracao = (terceira.output_text or '').strip()
+    if not narracao:
+        raise ValueError('A IA não produziu o texto para áudio.')
+    return escrita, narracao
+
+# =========================================================
 # IA - ANALISA SOMENTE A FOTO NOVA RECEBIDA DA ESP32
 # =========================================================
 
@@ -3742,48 +3851,18 @@ def websocket_esp32(ws):
                                 "Não invente conteúdo que não esteja legível na foto e não troque o enunciado pelo material-base. "
                             )
 
-                        resposta = openai_client.responses.create(
-                            model=OPENAI_MODEL,
-                            input=[{
-                                "role": "user",
-                                "content": conteudo_ia
-                            }]
-                        )
-
-                        resolucao = (resposta.output_text or "").strip()
+                        if eh_objetiva:
+                            resposta = openai_client.responses.create(
+                                model=OPENAI_MODEL,
+                                input=[{"role": "user", "content": conteudo_ia}]
+                            )
+                            resolucao = (resposta.output_text or "").strip()
+                        else:
+                            escrita_aprovada, resolucao = executar_resolucao_padronizada(
+                                numero, "data:image/jpeg;base64," + imagem_b64, arquivo_base_id
+                            )
                         if not resolucao:
                             resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
-
-                        if not eh_objetiva and resolucao:
-                            # Segunda etapa: revisar antes de gerar a voz, sem alterar o enunciado.
-                            revisao = openai_client.responses.create(
-                                model=OPENAI_MODEL,
-                                input=[{
-                                    "role": "user", "content": [{
-                                        "type": "input_text",
-                                        "text": (
-                                            f"Revise o guia de escrita do exercício {numero} abaixo. "
-                                            "Verifique matemática, limites e resultado. Elimine repetições e reinícios. Resuma ao máximo sem perder cálculos essenciais. "
-                                            "Em integrais iteradas, a cada variável integrada, elimine exatamente "
-                                            "seu símbolo integral e seu diferencial; nunca volte à integral tripla "
-                                            "após ela virar dupla. Mantenha uma única linha por transformação "
-                                            "matemática efetiva. Preserve o formato de ditado para copiar, "
-                                            "com comandos de linha, abertura/fechamento de frações e parênteses. "
-                                            "Em contas encadeadas, mantenha o lado esquerdo apenas na primeira igualdade e continue com = nas linhas seguintes; não reescreva a expressão inteira para apresentar o resultado. "
-                                            "Não omita etapas essenciais nem invente dados. "
-                                            "Preserve rigorosamente as regras de pronúncia vetorial, maiúscula/minúscula, módulo, gradiente, multiplicação escalar/vetorial e leitura de matriz. ""Devolva SOMENTE o guia corrigido, sem comentários de revisão. "
-                                            "Se a matemática não puder ser conferida, responda exatamente "
-                                            "REVISAO_INSEGURA.\n\nGUIA ORIGINAL:\n" + resolucao
-                                        )
-                                    }]
-                                }]
-                            )
-                            texto_revisado = (revisao.output_text or "").strip()
-                            if not texto_revisado or texto_revisado == "REVISAO_INSEGURA":
-                                adicionar_log_esp32("ERRO", f"Revisao insegura no exercicio {numero}; audio bloqueado.")
-                                atualizar_status_ia("ERRO", "🔴 REVISÃO INSEGURA", "A resolução não passou pela revisão; áudio não enviado.")
-                                return
-                            resolucao = texto_revisado
 
                         if eh_objetiva:
                             import re
@@ -3887,6 +3966,11 @@ small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio
 <p><button id="resolver" type="submit">Resolver e mostrar narração</button></p></form><div id="estado" role="status"></div></section>
 <section id="resultado" style="display:none">
 <div class="painel"><h2>1. Resolução matemática escrita</h2><pre id="escrita"></pre></div>
+<div class="painel"><h2>Correção do padrão da IA</h2>
+<small>Se a resolução estiver diferente do esperado, cole a versão correta e registre o erro. Os exemplos aprovados serão usados nas próximas questões, inclusive da ESP32.</small>
+<p><label>Resolução esperada</label><textarea id="esperada" placeholder="Cole aqui a resolução corrigida e aprovada"></textarea></p>
+<p><label>O que a IA fez de errado?</label><textarea id="erroTreino" style="min-height:75px" placeholder="Ex.: pulou derivadas, repetiu fórmula geral, criou passo desnecessário"></textarea></p>
+<p><button id="salvarExemplo" type="button">💾 Salvar exemplo aprovado</button> <span id="estadoExemplo"></span></p></div>
 <div class="painel"><h2>2. Texto que a IA enviaria ao áudio</h2><small>Texto literal do ditado matemático, depois da revisão. Edite para experimentar ajustes.</small>
 <textarea id="fala" spellcheck="false"></textarea><p><button id="ouvir" type="button">▶ Gerar prévia de áudio</button> <button id="copiar" type="button">Copiar texto</button></p><div id="statusAudio"></div><audio id="player" controls style="display:none"></audio></div>
 </section></main><script>
@@ -3898,6 +3982,13 @@ try{const dados=new FormData();dados.append('imagem',imagem.files[0]);dados.appe
 const resp=await fetch('/api/treinador/resolver',{method:'POST',body:dados});const json=await resp.json();if(!resp.ok)throw Error(json.erro||'Falha');
 document.getElementById('escrita').textContent=json.escrita;document.getElementById('fala').value=json.narracao;document.getElementById('resultado').style.display='block';document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
 }catch(e){document.getElementById('estado').textContent='Erro: '+e.message}finally{btn.disabled=false}});
+document.getElementById('salvarExemplo').onclick=async()=>{
+const esperado=document.getElementById('esperada').value.trim(),erro=document.getElementById('erroTreino').value.trim();
+const status=document.getElementById('estadoExemplo');
+if(!esperado){status.textContent='Preencha a resolução esperada.';return;}
+try{const r=await fetch('/api/treinador/exemplos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({esperada:esperado,erro})});
+const j=await r.json();if(!r.ok)throw Error(j.erro||'Falha');status.textContent='Exemplo salvo. Total: '+j.total;
+}catch(e){status.textContent='Erro: '+e.message;}};
 document.getElementById('copiar').onclick=async()=>{await navigator.clipboard.writeText(document.getElementById('fala').value)};
 document.getElementById('ouvir').onclick=async()=>{const btn=document.getElementById('ouvir');btn.disabled=true;document.getElementById('statusAudio').textContent='Gerando voz...';
 try{const resp=await fetch('/api/treinador/audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texto:document.getElementById('fala').value})});if(!resp.ok){const j=await resp.json();throw Error(j.erro||'Erro na voz')}
@@ -3927,42 +4018,30 @@ def treinador_resolver():
     if not numero: numero = 'visível na imagem'
     imagem_url = 'data:'+tipo+';base64,'+base64.b64encode(dados).decode('ascii')
     try:
-        # Etapa 1: roteiro falado com EXATAMENTE o prompt usado na resolução da ESP32.
-        entrada = [{'type':'input_text','text':prompt_ditado_exercicio(numero)},
-                   {'type':'input_image','image_url':imagem_url}]
-        if material_base_file_id:
-            entrada.append({'type':'input_file','file_id':material_base_file_id})
-        resposta = openai_client.responses.create(model=OPENAI_MODEL,input=[{'role':'user','content':entrada}])
-        narracao = (resposta.output_text or '').strip()
-        if not narracao:
-            return jsonify({'erro':'A IA não produziu uma narração.'}), 502
-        # Etapa 2: mesma finalidade da revisão da produção, sem recomeços.
-        revisao = openai_client.responses.create(model=OPENAI_MODEL,input=[{'role':'user','content':[
-            {'type':'input_text','text':(
-                'Revise o ditado matemático a seguir com rigor: confira cálculos, sinais, limites e resultado. '
-                'Resuma ao máximo sem omitir contas essenciais. Preserve as regras de pronúncia de letras vetoriais, '
-                'maiúsculas/minúsculas, sinal de gradiente, multiplicação escalar/vetorial, barras de módulo e matriz. '
-                'Não exija matriz quando o método direto for mais curto e correto. Somente se uma matriz aparecer na resolução, comece sua leitura com Vamos montar a matriz e termine com Matriz terminada. '
-                'Não repita o lado esquerdo em uma sequência de igualdades. '
-                'Retorne SOMENTE o texto a ser falado, sem markdown. Se não for seguro revisar, retorne REVISAO_INSEGURA.\n\n'+narracao)}
-        ]}])
-        narracao=(revisao.output_text or '').strip()
-        if not narracao or narracao=='REVISAO_INSEGURA':
-            return jsonify({'erro':'A revisão não conseguiu validar a resolução.'}), 422
-        # Etapa 3: representação matemática fiel, sem inventar contas além do ditado.
-        escrita_resp=openai_client.responses.create(model=OPENAI_MODEL,input=[{'role':'user','content':[
-            {'type':'input_text','text':(
-                'Reescreva o DITADO MATEMÁTICO abaixo como resolução ESCRITA organizada em passos curtos. '
-                'Use notação matemática legível em texto puro, com Unicode quando conveniente (∇, ∂, ∫, ×, ·, →). '
-                'Mostre fórmulas e igualdades encadeadas sem repetir o lado esquerdo; mostre matrizes linha por linha apenas quando realmente utilizadas, nunca as acrescente por obrigação. '
-                'Não acrescente novos cálculos, conclusões ou etapas além do que o ditado sustenta. '
-                'Não faça explicações redundantes. Responda SOMENTE a resolução escrita.\n\nDITADO:\n'+narracao)}
-        ]}])
-        escrita=(escrita_resp.output_text or '').strip()
+        escrita, narracao = executar_resolucao_padronizada(numero, imagem_url, material_base_file_id)
         return jsonify({'ok':True,'escrita':escrita,'narracao':narracao})
+    except ValueError as erro:
+        return jsonify({'erro':str(erro)}), 422
     except Exception as erro:
         app.logger.exception('Erro no laboratório de treinamento')
         return jsonify({'erro':'Falha ao consultar a IA: '+str(erro)}), 502
+
+@app.route('/api/treinador/exemplos', methods=['POST'])
+def treinador_salvar_exemplo():
+    corpo = request.get_json(silent=True) or {}
+    esperada = str(corpo.get('esperada', '')).strip()
+    erro = str(corpo.get('erro', '')).strip()
+    if not 20 <= len(esperada) <= 10000 or len(erro) > 2000:
+        return jsonify({'erro':'Resolução esperada: 20 a 10000 caracteres; erro: até 2000.'}), 400
+    with exemplos_lock:
+        exemplos = carregar_exemplos_aprovados()
+        exemplos.append({'esperada':esperada, 'erro':erro, 'criado_em':datetime.now().isoformat()})
+        exemplos = exemplos[-30:]
+        temporario = ARQUIVO_EXEMPLOS + '.tmp'
+        with open(temporario,'w',encoding='utf-8') as f:
+            json.dump(exemplos,f,ensure_ascii=False,indent=2)
+        os.replace(temporario,ARQUIVO_EXEMPLOS)
+    return jsonify({'ok':True,'total':len(exemplos)})
 
 @app.route('/api/treinador/audio', methods=['POST'])
 def treinador_audio():
