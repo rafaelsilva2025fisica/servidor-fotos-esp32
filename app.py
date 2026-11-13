@@ -3004,11 +3004,13 @@ def contexto_exemplos():
                       "\nErro a evitar: " + ex.get('erro', '')[:1200])
     return "\n\n".join(blocos)
 
+REGRA_COMPLETUDE_CURVAS = '\nREGRA DE COMPLETUDE GEOMÉTRICA (OBRIGATÓRIA): em integrais de linha sobre fronteira\nfechada, identifique TODOS os trechos da fronteira, incluindo segmentos verticais\nou horizontais implícitos nos limites da região. Determine os vértices/pontos de\ninterseção e a orientação solicitada. Para cada trecho, escreva ponto inicial,\nponto final e parametrização; confira que o fim de um coincide com o início do\nseguinte e que o último termina no início do primeiro. Só depois integre e some\nTODAS as contribuições. Não considere uma curva fechada se houver lacuna.\nExemplo geométrico (não copie os valores para outros problemas): para\n0 ≤ x ≤ 1 e 0 ≤ y ≤ x², a fronteira possui TRÊS partes: y=0 de (0,0) a (1,0),\nx=1 de (1,0) a (1,1), e y=x² de (1,1) a (0,0), nesta ordem anti-horária.\nSe uma parte estiver ausente, a resposta está INCOMPLETA: corrija antes de\nentregar, mesmo que as integrais já feitas estejam certas. Em outros exercícios,\nreconstrua a geometria a partir da foto, sem assumir três trechos.\nEm itens isolados, faça todos os cálculos auxiliares necessários, mas não\nresolva separadamente outros subitens. Não presuma que itens anteriores foram feitos.\n'
+
 def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     """Fluxo único para laboratório e exercícios escritos enviados pela ESP32."""
     conteudo = [{'type': 'input_text', 'text': (
         f'Leia a imagem e resolva SOMENTE o exercício {numero}.\n' +
-        PADRAO_RESOLUCAO + '\n\n' + contexto_exemplos())}]
+        PADRAO_RESOLUCAO + '\n\n' + REGRA_COMPLETUDE_CURVAS + '\n\n' + contexto_exemplos())}]
     if arquivo_base_id:
         conteudo.append({'type':'input_file','file_id':arquivo_base_id})
     conteudo.append({'type':'input_image','image_url':imagem_url})
@@ -3022,7 +3024,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     segunda = openai_client.responses.create(model=OPENAI_MODEL,
         input=[{'role':'user','content':[
             {'type':'input_text','text':(
-                'Revise esta resolução comparando-a à FOTO ORIGINAL. Corrija erros matemáticos, '
+                'Revise esta resolução comparando-a à FOTO ORIGINAL. ' + REGRA_COMPLETUDE_CURVAS + ' Corrija erros matemáticos, '
                 'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
                 'repetições do lado esquerdo e passos sem operação matemática nova. '
                 'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
@@ -3583,6 +3585,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                         input=[{"role": "user", "content": [
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
+                                + REGRA_COMPLETUDE_CURVAS + " "
                                 "REGRA DE ESCOPO: não repita resoluções de letras anteriores (a, b etc.), mesmo que estejam na mesma questão. "
                                 "Use resultados anteriores somente como dados, sem refazer rotacional, divergente ou encontrar novamente a função potencial. "
                                 "Se a letra pedir integral de linha de campo conservativo com função potencial conhecida, "
@@ -3609,6 +3612,31 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                     conteudo = (resposta.output_text or "").strip()
                     if not conteudo:
                         raise ValueError("A IA retornou resolução vazia")
+                    # Auditoria independente: impede curvas fechadas incompletas.
+                    auditoria = openai_client.responses.create(
+                        model=OPENAI_MODEL,
+                        input=[{"role": "user", "content": [
+                            {"type": "input_text", "text": (
+                                "AUDITORIA MATEMÁTICA INDEPENDENTE do exercício " + numero + ". "
+                                + REGRA_COMPLETUDE_CURVAS +
+                                "Compare a solução com a FOTO ORIGINAL e com o enunciado. "
+                                "Verifique cada trecho de curva, orientação, integrais e resultado. "
+                                "Se faltar trecho, CORRIJA a resolução INTEIRA, mostrando-o e "
+                                "recalculando a soma. Não altere o escopo do subitem. "
+                                "Se a solução estiver correta, devolva-a sem mudanças matemáticas. "
+                                "Preserve texto Unicode, títulos sem numeração, INT{inferior}{superior} "
+                                "para integrais definidas e Resultado final uma única vez. "
+                                "Não use Markdown nem LaTeX. Responda SOMENTE a resolução revisada. "
+                                "ENUNCIADO IDENTIFICADO: " + enunciado +
+                                "\nRESOLUÇÃO A AUDITAR:\n" + conteudo
+                            )},
+                            {"type": "input_image", "image_url": "data:image/jpeg;base64," + foto_b64}
+                        ]}]
+                    )
+                    revisada = (auditoria.output_text or "").strip()
+                    if not revisada:
+                        raise ValueError("Auditoria matemática retornou texto vazio")
+                    conteudo = revisada
                     # Remove sufixos de unidade redundantes em outros idiomas na resposta final.
                     import re
                     conteudo = re.sub(r"(?im)(?<=\d)\s+(?:куб(?:ических)?|cubic\s+units?)\s*$", "", conteudo)
