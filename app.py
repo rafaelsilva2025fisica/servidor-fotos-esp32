@@ -1044,9 +1044,11 @@ const apagarTodosAudios = document.getElementById("apagarTodosAudios");
 // Galeria adicional: isolada das fotos e do fluxo de áudio.
 const resolucoesModal = document.getElementById("resolucoesModal");
 let atualizadorResolucoes = null;
+let fotoResolucoesSelecionada = null;
 async function carregarResolucoes() {
     try {
-        const r = await fetch("/api/resolucoes?t=" + Date.now(), {cache:"no-store"});
+        const filtro = fotoResolucoesSelecionada ? "&foto=" + encodeURIComponent(fotoResolucoesSelecionada) : "";
+        const r = await fetch("/api/resolucoes?t=" + Date.now() + filtro, {cache:"no-store"});
         const dados = await r.json();
         if (!r.ok) throw new Error("Falha ao consultar resoluções");
         const grid = document.getElementById("resolucoesGrid");
@@ -1056,19 +1058,30 @@ async function carregarResolucoes() {
             const a = document.createElement("a"); a.href = item.url; a.target = "_blank"; a.rel = "noopener";
             const img = document.createElement("img"); img.src = item.url; img.alt = item.nome;
             a.appendChild(img); card.appendChild(a);
-            const info = document.createElement("div"); info.className = "foto-info"; info.textContent = item.nome;
+            const info = document.createElement("div"); info.className = "foto-info";
+            const indice = item.nome.match(/__(\\d+)_/);
+            info.textContent = indice ? "Resolução " + Number(indice[1]) : item.nome;
             card.appendChild(info); grid.appendChild(card);
         });
-        if (!dados.imagens || !dados.imagens.length) grid.textContent = "Ainda não há resoluções prontas.";
+        if (!dados.imagens || !dados.imagens.length) grid.textContent = "Ainda não há resoluções prontas para esta foto.";
         const ativos = (dados.jobs || []).filter(j => j.estado !== "concluido");
         document.getElementById("resolucoesEstado").textContent = ativos.length
             ? "⏳ Gerando imagens: " + ativos.map(j => j.concluidos + "/" + j.total).join(", ")
             : "Resoluções disponíveis: " + (dados.imagens || []).length;
     } catch(e) { document.getElementById("resolucoesEstado").textContent = "Erro: " + e.message; }
 }
-document.getElementById("abrirResolucoes").onclick = function() {
-    resolucoesModal.classList.add("aberta"); carregarResolucoes();
+function abrirBibliotecaResolucoes(foto = null) {
+    fotoResolucoesSelecionada = foto;
+    resolucoesModal.querySelector("h2").textContent = foto
+        ? "📐 Resoluções da foto: " + foto
+        : "📐 Resoluções automáticas";
+    resolucoesModal.classList.add("aberta");
+    clearInterval(atualizadorResolucoes);
+    carregarResolucoes();
     atualizadorResolucoes = setInterval(carregarResolucoes, 4000);
+}
+document.getElementById("abrirResolucoes").onclick = function() {
+    abrirBibliotecaResolucoes();
 };
 document.getElementById("fecharResolucoes").onclick = function() {
     resolucoesModal.classList.remove("aberta"); clearInterval(atualizadorResolucoes);
@@ -1729,6 +1742,15 @@ async function carregarGaleria() {
 
             card.appendChild(img);
             card.appendChild(info);
+            const botaoResolucoes = document.createElement("button");
+            botaoResolucoes.type = "button";
+            botaoResolucoes.textContent = "📐 Ver resoluções desta foto";
+            botaoResolucoes.style.cssText = "margin:8px;width:calc(100% - 16px);padding:10px;cursor:pointer;";
+            botaoResolucoes.onclick = function() {
+                galeriaModal.classList.remove("aberta");
+                abrirBibliotecaResolucoes(foto.nome);
+            };
+            card.appendChild(botaoResolucoes);
             galeriaGrid.appendChild(card);
         });
 
@@ -3182,11 +3204,20 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
 
 @app.route("/api/resolucoes", methods=["GET"])
 def api_resolucoes():
+    foto = request.args.get("foto", "").strip()
+    if foto and (os.path.basename(foto) != foto or
+                 not foto.lower().endswith((".jpg", ".jpeg"))):
+        return jsonify({"erro": "Nome de foto inválido."}), 400
     arquivos = [n for n in os.listdir(PASTA_RESOLUCOES) if n.endswith(".svg")]
+    if foto:
+        prefixo = os.path.splitext(foto)[0] + "__"
+        arquivos = [n for n in arquivos if n.startswith(prefixo)]
     arquivos.sort(key=lambda n: os.path.getmtime(os.path.join(PASTA_RESOLUCOES, n)), reverse=True)
     with resolucoes_lock:
-        jobs = list(resolucoes_jobs.values())[-10:]
-    return jsonify({"imagens": [{"nome": n, "url": "/resolucoes/" + n} for n in arquivos], "jobs": jobs})
+        jobs = [dict(j) for j in resolucoes_jobs.values() if not foto or j.get("foto") == foto][-10:]
+    return jsonify({"foto": foto or None,
+                    "imagens": [{"nome": n, "url": "/resolucoes/" + n} for n in arquivos],
+                    "jobs": jobs})
 
 
 @app.route("/resolucoes/<path:nome>", methods=["GET"])
