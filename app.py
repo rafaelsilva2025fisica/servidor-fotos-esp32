@@ -2962,6 +2962,7 @@ PADRAO_RESOLUCAO = (
     "Não omita sinais, limites, substituições essenciais nem resultados. "
     "Não use matrizes para rotacional se o cálculo direto for mais simples. "
     "Para integrais definidas, use INT{inferior}{superior} conforme o formato do servidor. "
+    "Para integral de linha de campo conservativo, não refaça os itens anteriores: Passo Aplicação do teorema, Passo Substituição dos pontos e Resultado final uma vez no encerramento. Calcule os potenciais dos extremos separadamente e finalize diretamente com ∫_C F·dr = valor. "
     "Nos títulos das etapas, nunca use números, enumeração, hífen ou travessão: escreva exatamente Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final (uma vez só no encerramento), adaptando as variáveis ao exercício. Retorne SOMENTE a resolução escrita."
 )
 
@@ -3395,6 +3396,11 @@ def _latex_para_imagem(escrita, titulo, destino):
     import re as _re_pot
     potencial = bool(_re_pot.search(r'(?:[φϕ]|\\(?:var)?phi)', escrita)) and bool(
         _re_pot.search(r'(?:[∂∫]|\\(?:partial|int)|função potencial|funcao potencial)', escrita, _re_pot.I))
+    # A integral de linha pode USAR phi sem estar CALCULANDO a funcao potencial.
+    # Nao inserir automaticamente etapas de integracao no exercicio 1c.
+    potencial = potencial and bool(_re_pot.search(
+        r'(?:g\s*\(\s*y\s*,\s*z\s*\)|h\s*\(\s*z\s*\)|Passo\s+Integra[cç][aã]o|\\int\s*\(?\s*2xy)',
+        escrita, _re_pot.I))
     if potencial:
         tem_titulo = any(tipo == 'text' and _re_pot.search(r'fun[cç][aã]o\s+potencial|potencial\s+escalar', valor, _re_pot.I) for tipo, valor in itens)
         if not tem_titulo:
@@ -3577,8 +3583,16 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                         input=[{"role": "user", "content": [
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
+                                "REGRA DE ESCOPO: não repita resoluções de letras anteriores (a, b etc.), mesmo que estejam na mesma questão. "
+                                "Use resultados anteriores somente como dados, sem refazer rotacional, divergente ou encontrar novamente a função potencial. "
+                                "Se a letra pedir integral de linha de campo conservativo com função potencial conhecida, "
+                                "mostre apenas: Passo Aplicação do teorema; ∫_C F·dr = φ(B) − φ(A); "
+                                "Passo Substituição dos pontos; cálculo separado de φ(B) e φ(A); "
+                                "Resultado final; ∫_C F·dr = valor. "
+                                "O título Resultado final aparece uma única vez e a última linha contém só a expressão e o valor simplificado, "
+                                "sem repetir φ(B) − φ(A) ou reordenar contas. "
                                 "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, quando solicitadas. Para função potencial, divida a resolução com os títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, adaptando variáveis conforme necessário. Ao integrar, escreva explicitamente φ = ∫(expressão) dx antes do resultado integrado; faça o mesmo para g(y,z) = ∫(expressão) dy e integrais seguintes quando necessárias. Nunca pule a integral que gera uma função. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Não numere títulos nem use traços entre Passo e a descrição; escreva Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final uma única vez no encerramento quando aplicável. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
+                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, SOMENTE quando solicitadas no exercício atual. Para exercícios que PEDEM CALCULAR função potencial, divida a resolução com os títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, adaptando variáveis conforme necessário. Ao integrar, escreva explicitamente φ = ∫(expressão) dx antes do resultado integrado; faça o mesmo para g(y,z) = ∫(expressão) dy e integrais seguintes quando necessárias. Nunca pule a integral que gera uma função. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Não numere títulos nem use traços entre Passo e a descrição; escreva Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final uma única vez no encerramento quando aplicável. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
                                 "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
