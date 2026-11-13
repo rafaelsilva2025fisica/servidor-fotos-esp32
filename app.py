@@ -3263,6 +3263,87 @@ def _svg_resolucao(titulo, conteudo):
             + ''.join(elementos) + '</svg>')
 
 
+
+# =========================================================
+# IMAGENS MATEMÁTICAS PNG (sem MathJax no navegador)
+# Requer matplotlib no requirements.txt do Render.
+# =========================================================
+def _latex_para_imagem(escrita, titulo, destino):
+    """Formata o texto revisado em linhas LaTeX e renderiza com mathtext.
+    Se a conversão falhar, desenha o texto original em PNG sem perder conteúdo.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import re
+    from matplotlib.font_manager import FontProperties
+
+    # Conversão dedicada: NÃO pede nova solução, apenas transcrição visual.
+    pedido = (
+        'Converta a resolução a seguir em linhas para renderização matemática. '
+        'NÃO resolva novamente, NÃO mude nenhuma operação, valor, sinal ou ordem. '
+        'Responda APENAS uma linha por linha de saída. Cada linha deve ser '
+        'MAT: <expressão LaTeX> para fórmulas ou TXT: <texto> para títulos e explicações. '
+        'Use \\frac{\\partial(...)}{\\partial y} para derivadas parciais, '
+        'frações verticais \\frac{a}{b}, \\nabla, \\times, \\cdot, '
+        'expoentes ^{2} e subscritos _{x}. '
+        'Não use \\begin, \\end, \\left, \\right, \\text, alinhamentos, '
+        'delimitadores $ ou \\[. '
+        'Mathtext do matplotlib será usado, portanto produza comandos simples. '
+        'Não agrupe operações de linhas distintas. '
+        'Para INT{a}{b}, escreva \\int_{a}^{b}. '
+        'RESOLUÇÃO ORIGINAL:\n' + escrita[:16000]
+    )
+    resposta = openai_client.responses.create(model=OPENAI_MODEL,
+        input=[{'role':'user','content':[{'type':'input_text','text':pedido}]}])
+    bruto = (resposta.output_text or '').strip()
+    itens = []
+    for linha in bruto.splitlines():
+        linha = linha.strip()
+        if linha.startswith('MAT:'):
+            itens.append(('math', linha[4:].strip().strip('$')))
+        elif linha.startswith('TXT:'):
+            itens.append(('text', linha[4:].strip()))
+    if not itens:
+        raise ValueError('Conversão matemática sem linhas válidas.')
+
+    def desenhar(itens, fallback=False):
+        # Ajusta altura à quantidade de linhas; nenhuma fórmula vira código no HTML.
+        n = min(len(itens), 240)
+        fig = plt.figure(figsize=(13, max(3.5, 1.0 + n * .65)), dpi=145,
+                         facecolor='#ffffff')
+        fig.text(.045, .985, titulo, fontsize=22, fontweight='bold', va='top', color='#17233a')
+        passo = .90 / max(n, 1)
+        for i, (tipo, conteudo) in enumerate(itens[:n]):
+            y = .94 - i * passo
+            if not conteudo:
+                continue
+            if tipo == 'math' and not fallback:
+                fig.text(.045, y, '$' + conteudo + '$', fontsize=16, va='top', color='#111827')
+            else:
+                fig.text(.045, y, conteudo, fontsize=14, va='top', color='#111827',
+                         fontfamily='DejaVu Sans')
+        fig.savefig(destino, dpi=145, facecolor='white', bbox_inches='tight', pad_inches=.25)
+        plt.close(fig)
+    try:
+        desenhar(itens)
+    except Exception:
+        # Sem fórmula invisível: em caso de LaTeX inválido, PNG legível em Unicode.
+        try:
+            plt.close('all')
+        except Exception:
+            pass
+        desenhar([('text', linha) for linha in escrita.splitlines()], fallback=True)
+    return destino
+
+
+def _criar_png_resolucao(escrita, titulo, prefixo='treinador'):
+    nome = f'{prefixo}_{uuid.uuid4().hex[:12]}.png'
+    destino = os.path.join(PASTA_RESOLUCOES, nome)
+    _latex_para_imagem(escrita, titulo, destino)
+    return '/resolucoes/' + nome
+
+
 def iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios):
     if openai_client is None or not exercicios:
         return
@@ -3311,10 +3392,10 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                     # Remove sufixos de unidade redundantes em outros idiomas na resposta final.
                     import re
                     conteudo = re.sub(r"(?im)(?<=\d)\s+(?:куб(?:ических)?|cubic\s+units?)\s*$", "", conteudo)
-                    nome_svg = f'{os.path.splitext(nome)[0]}__{i:02d}_{uuid.uuid4().hex[:6]}.svg'
-                    svg = _svg_resolucao(f'Exercício {numero}', conteudo)
-                    with open(os.path.join(PASTA_RESOLUCOES, nome_svg), "w", encoding="utf-8") as f:
-                        f.write(svg)
+                    # Imagem PNG de matemática, com frações verticais.
+                    # Mantém o prefixo da foto para o filtro da galeria.
+                    _criar_png_resolucao(conteudo, f'Exercício {numero}',
+                                        prefixo=f'{os.path.splitext(nome)[0]}__{i:02d}')
                 except Exception as erro:
                     print(f'GALERIA RESOLUCOES: erro no exercício {numero}: {erro!r}', flush=True)
                 finally:
@@ -3336,7 +3417,7 @@ def api_resolucoes():
     if foto and (os.path.basename(foto) != foto or
                  not foto.lower().endswith((".jpg", ".jpeg"))):
         return jsonify({"erro": "Nome de foto inválido."}), 400
-    arquivos = [n for n in os.listdir(PASTA_RESOLUCOES) if n.endswith(".svg")]
+    arquivos = [n for n in os.listdir(PASTA_RESOLUCOES) if n.lower().endswith((".png", ".svg"))]
     if foto:
         prefixo = os.path.splitext(foto)[0] + "__"
         arquivos = [n for n in arquivos if n.startswith(prefixo)]
@@ -3350,7 +3431,7 @@ def api_resolucoes():
 
 @app.route("/resolucoes/<path:nome>", methods=["GET"])
 def arquivo_resolucao(nome):
-    resposta = send_from_directory(PASTA_RESOLUCOES, nome, mimetype="image/svg+xml", as_attachment=False)
+    resposta = send_from_directory(PASTA_RESOLUCOES, nome, as_attachment=False)
     resposta.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
     return resposta
 
@@ -3984,7 +4065,8 @@ small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio
 <label>Número ou item a resolver (opcional): <input id="numero" placeholder="Ex.: 1 ou 1a" style="width:150px"></label>
 <p><button id="resolver" type="submit">Resolver e mostrar narração</button></p></form><div id="estado" role="status"></div></section>
 <section id="resultado" style="display:none">
-<div class="painel"><h2>1. Resolução matemática escrita</h2><small>Contas em linhas separadas, sem códigos LaTeX.</small><pre id="escrita"></pre></div>
+<div class="painel"><h2>1. Resolução em imagem</h2><small>Frações verticais, derivadas e contas separadas. PNG gerado no servidor.</small><p><a id="baixarImagem" href="#" target="_blank">Abrir imagem em tamanho original</a></p><img id="imagemResolucao" alt="Resolução matemática renderizada" style="display:block;max-height:none;width:100%;height:auto;background:white;border-radius:8px"></div>
+<div class="painel"><h2>Resolução em texto (cópia)</h2><pre id="escrita"></pre></div>
 <div class="painel"><h2>Correção do padrão da IA</h2>
 <small>Se a resolução estiver diferente do esperado, cole a versão correta e registre o erro. Os exemplos aprovados serão usados nas próximas questões, inclusive da ESP32.</small>
 <p><label>Resolução esperada</label><textarea id="esperada" placeholder="Cole aqui a resolução corrigida e aprovada"></textarea></p>
@@ -3999,7 +4081,7 @@ imagem.addEventListener('change',()=>{if(imagem.files[0]){preview.src=URL.create
 form.addEventListener('submit',async ev=>{ev.preventDefault();const btn=document.getElementById('resolver');btn.disabled=true;document.getElementById('estado').textContent='Analisando imagem, resolvendo e revisando...';document.getElementById('resultado').style.display='none';
 try{const dados=new FormData();dados.append('imagem',imagem.files[0]);dados.append('numero',document.getElementById('numero').value);
 const resp=await fetch('/api/treinador/resolver',{method:'POST',body:dados});const json=await resp.json();if(!resp.ok)throw Error(json.erro||'Falha');
-document.getElementById('escrita').textContent=json.escrita;document.getElementById('fala').value=json.narracao;document.getElementById('resultado').style.display='block';document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
+document.getElementById('escrita').textContent=json.escrita;document.getElementById('imagemResolucao').src=json.imagem_url;document.getElementById('baixarImagem').href=json.imagem_url;document.getElementById('fala').value=json.narracao;document.getElementById('resultado').style.display='block';document.getElementById('estado').textContent='Pronto. Confira o texto e gere a prévia quando quiser.';
 }catch(e){document.getElementById('estado').textContent='Erro: '+e.message}finally{btn.disabled=false}});
 document.getElementById('salvarExemplo').onclick=async()=>{
 const esperado=document.getElementById('esperada').value.trim(),erro=document.getElementById('erroTreino').value.trim();
@@ -4038,7 +4120,8 @@ def treinador_resolver():
     imagem_url = 'data:'+tipo+';base64,'+base64.b64encode(dados).decode('ascii')
     try:
         escrita, narracao = executar_resolucao_padronizada(numero, imagem_url, material_base_file_id)
-        return jsonify({'ok':True,'escrita':escrita,'narracao':narracao})
+        imagem_resolucao = _criar_png_resolucao(escrita, f'Exercício {numero}')
+        return jsonify({'ok':True,'escrita':escrita,'narracao':narracao,'imagem_url':imagem_resolucao})
     except ValueError as erro:
         return jsonify({'erro':str(erro)}), 422
     except Exception as erro:
