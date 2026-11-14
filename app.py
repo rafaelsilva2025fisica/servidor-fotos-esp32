@@ -1055,7 +1055,16 @@ async function carregarResolucoes() {
         if (!r.ok) throw new Error("Falha ao consultar resoluções");
         const grid = document.getElementById("resolucoesGrid");
         grid.replaceChildren();
-        (dados.imagens || []).forEach(item => {
+        // Exibe as resoluções na ordem numérica crescente: 1, 2, 3...
+        // Mantém a ordem recebida para arquivos sem número identificável.
+        const imagensOrdenadas = [...(dados.imagens || [])].sort((a, b) => {
+            const numero = item => {
+                const match = String(item.nome || "").match(/__(\d+)_/);
+                return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+            };
+            return numero(a) - numero(b);
+        });
+        imagensOrdenadas.forEach(item => {
             const card = document.createElement("div"); card.className = "foto-card";
             const a = document.createElement("a"); a.href = item.url; a.target = "_blank"; a.rel = "noopener";
             const img = document.createElement("img"); img.src = item.url; img.alt = item.nome;
