@@ -4269,7 +4269,7 @@ def websocket_esp32(ws):
                         )
                         tipo_exercicio = (resposta_tipo.output_text or "ESCRITA").strip().upper()
                         eh_objetiva = "OBJETIVA" in tipo_exercicio
-                        velocidade_audio = 1.0 if eh_objetiva else 0.6
+                        velocidade_audio = 1.0 if eh_objetiva else 0.45
                         adicionar_log_esp32(
                             "INFO",
                             f"Exercício {numero}: {'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
