@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, render_template_string, request, send_file, send_from_directory
-from werkzeug.utils import secure_filename 
+from werkzeug.utils import secure_filename
 from flask_sock import Sock
 import threading
 import time
@@ -8,7 +8,7 @@ import base64
 import uuid
 import textwrap
 import html
-import subprocess 
+import subprocess
 import imageio_ffmpeg
 from datetime import datetime
 from openai import OpenAI
@@ -3251,7 +3251,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
                 "Não consegui detectar nenhum exercício legível nesta imagem. "
                 "Aguarde trinta segundos sem apertar o botão. Depois, tire outra foto.",
                 menu=False,
-                velocidade=1.4
+                velocidade=1.0
             )
             return
 
@@ -3321,7 +3321,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
 
         texto_menu = identificacao + texto_menu_exercicios(exercicios, incluir_gabarito=gabarito_disponivel)
 
-        criar_e_enviar_audio_ia(texto_menu, menu=True, velocidade=1.4)
+        criar_e_enviar_audio_ia(texto_menu, menu=True, velocidade=1.0)
 
         # Recurso EXTRA: só inicia depois do fluxo principal preparar o menu.
         # Não altera status_ia, esp_ws, áudios nem variáveis da sessão.
@@ -4190,7 +4190,7 @@ def websocket_esp32(ws):
                                 texto_ultimo_gabarito = texto_gabarito
                             texto_com_menu = (texto_gabarito + " Agora você pode escolher novamente. "
                                 + texto_menu_exercicios(opcoes, incluir_gabarito=True, atual=-1))
-                            audio_gabarito = criar_e_enviar_audio_ia(texto_com_menu, menu=True, velocidade=1.4)
+                            audio_gabarito = criar_e_enviar_audio_ia(texto_com_menu, menu=True, velocidade=1.0)
                             if audio_gabarito:
                                 with lock:
                                     global indice_audio_atual, id_audio_atual
@@ -4269,7 +4269,7 @@ def websocket_esp32(ws):
                         )
                         tipo_exercicio = (resposta_tipo.output_text or "ESCRITA").strip().upper()
                         eh_objetiva = "OBJETIVA" in tipo_exercicio
-                        velocidade_audio = 1.2 if eh_objetiva else 1.0
+                        velocidade_audio = 1.0 if eh_objetiva else 0.6
                         adicionar_log_esp32(
                             "INFO",
                             f"Exercício {numero}: {'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
