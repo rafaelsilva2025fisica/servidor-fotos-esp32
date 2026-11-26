@@ -7,7 +7,7 @@ import os
 import base64
 import uuid
 import textwrap
-import html 
+import html
 import subprocess
 import imageio_ffmpeg
 from datetime import datetime
@@ -3200,7 +3200,8 @@ def analisar_foto_nova_com_ia(caminho, nome):
                     {
                         "type": "input_text",
                         "text": (
-                            "Leia a imagem e identifique cada QUESTÃO E CADA SUBITEM legível como opção INDEPENDENTE do menu. "
+                            "Leia a imagem e identifique cada QUESTÃO E CADA SUBITEM legível como opção INDEPENDENTE do menu, EXCETO questões de verdadeiro ou falso. "
+                            "REGRA PRIORITÁRIA: se a questão pedir V/F, verdadeiro/falso ou certo/errado para todos os subitens, devolva UMA ÚNICA opção com o número original, sem letra, incluindo todos os subitens e o enunciado comum. Exemplo: EXERCICIO 7: Marque V ou F; a) ...; b) ...; c) ...; d) ... . Esta exceção prevalece sobre todas as regras de separação abaixo. Não agrupe questões de múltipla escolha ou cálculo. "
                             "Se houver questão 1 com itens a e b, devolva EXERCICIO 1A e EXERCICIO 1B em linhas distintas. "
                             "Se houver questão 3 com itens a e b, devolva EXERCICIO 3A e EXERCICIO 3B. "
                             "Cada subitem deve trazer o enunciado comum da questão e a condição específica do subitem. "
@@ -3268,7 +3269,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
                         "Confira na FOTO ORIGINAL se TODOS os exercícios identificados são questões "
                         "de múltipla escolha com alternativas para marcar (A/B/C/D/E ou similares). "
                         "Responda EXATAMENTE SIM se todos forem de múltipla escolha; "
-                        "caso haja alguma questão discursiva, cálculo sem alternativas ou dúvida, responda NAO."
+                        "caso haja alguma questão de verdadeiro ou falso, discursiva, cálculo sem alternativas ou dúvida, responda NAO."
                     )},
                     {"type": "input_image", "image_url": "data:image/jpeg;base64," + imagem_b64}
                 ]}]
@@ -4255,7 +4256,8 @@ def websocket_esp32(ws):
                                         "type": "input_text",
                                         "text": (
                                             f"Classifique SOMENTE o exercício {numero}. "
-                                            "Responda apenas OBJETIVA ou ESCRITA. "
+                                            "Responda apenas VERDADEIRO_FALSO, OBJETIVA ou ESCRITA. "
+                                            "VERDADEIRO_FALSO: questão que pede julgar afirmações como V/F ou certo/errado, mesmo quando exige justificativas breves. Esta classificação tem prioridade sobre as demais. "
                                             "OBJETIVA: múltipla escolha ou alternativas para marcar, inclusive questões teóricas A, B, C, D, E. "
                                             "ESCRITA: cálculo desenvolvido, matemática, física, discursiva, texto, demonstração ou resposta que precisa ser desenvolvida."
                                         )
@@ -4268,11 +4270,12 @@ def websocket_esp32(ws):
                             }]
                         )
                         tipo_exercicio = (resposta_tipo.output_text or "ESCRITA").strip().upper()
-                        eh_objetiva = "OBJETIVA" in tipo_exercicio
-                        velocidade_audio = 1.0 if eh_objetiva else 0.6
+                        eh_vf = tipo_exercicio == "VERDADEIRO_FALSO"
+                        eh_objetiva = "OBJETIVA" in tipo_exercicio and not eh_vf
+                        velocidade_audio = 1.0 if (eh_objetiva or eh_vf) else 0.6
                         adicionar_log_esp32(
                             "INFO",
-                            f"Exercício {numero}: {'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
+                            f"Exercício {numero}: {'VERDADEIRO_FALSO' if eh_vf else 'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
                         )
 
                         conteudo_ia = [
@@ -4282,7 +4285,16 @@ def websocket_esp32(ws):
                                     }
                         ]
 
-                        if eh_objetiva:
+                        if eh_vf:
+                            conteudo_ia[0]["text"] = (
+                                f"Leia a foto original e responda somente a questão {numero}, incluindo TODOS os seus subitens de verdadeiro ou falso, na ordem original. "
+                                "Para cada item, diga a letra e Verdadeiro ou Falso por extenso. "
+                                "Exemplo de formato: Letra A: verdadeiro. Letra B: falso. "
+                                "Se o enunciado pedir justificativas, acrescente uma justificativa breve logo após cada julgamento. "
+                                "Não repita o enunciado, não crie submenu por letra, não responda outras questões. "
+                                "Se algum item estiver ilegível, informe isso sem inventar resposta. Use texto natural para áudio, sem Markdown."
+                            )
+                        elif eh_objetiva:
                             conteudo_ia[0]["text"] = (
                                 f"Observe novamente esta imagem original e responda SOMENTE o exercício {numero}. "
                                 "Leia tudo DIRETAMENTE DA FOTO e confira cuidadosamente antes de responder. "
@@ -4315,7 +4327,7 @@ def websocket_esp32(ws):
                                 "Não invente conteúdo que não esteja legível na foto e não troque o enunciado pelo material-base. "
                             )
 
-                        if eh_objetiva:
+                        if eh_objetiva or eh_vf:
                             resposta = openai_client.responses.create(
                                 model=OPENAI_MODEL,
                                 input=[{"role": "user", "content": conteudo_ia}]
@@ -4328,7 +4340,11 @@ def websocket_esp32(ws):
                         if not resolucao:
                             resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
 
-                        if eh_objetiva:
+                        if eh_vf:
+                            texto_final = (f"Exercício {numero}. " + resolucao + " "
+                                           "Agora você pode escolher novamente. "
+                                           + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito, atual=indice_opcao))
+                        elif eh_objetiva:
                             import re
                             # Extrai somente a letra e o texto da alternativa escolhida.
                             padrao = re.fullmatch(
