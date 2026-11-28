@@ -3624,15 +3624,18 @@ def _svg_resolucao(titulo, conteudo):
 # IMAGENS MATEMÁTICAS PNG (sem MathJax no navegador)
 # Requer matplotlib no requirements.txt do Render.
 # =========================================================
+_trava_render_png = threading.Lock()
+
 def _latex_para_imagem(escrita, titulo, destino):
     """Formata o texto revisado em linhas LaTeX e renderiza com mathtext.
     Se a conversão falhar, desenha o texto original em PNG sem perder conteúdo.
     """
     import matplotlib
     matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from PIL import Image
     import re
-    from matplotlib.font_manager import FontProperties
 
     originais = [v.strip() for v in escrita.splitlines() if v.strip()]
     # Conversão dedicada: NÃO pede nova solução, apenas transcrição visual.
@@ -3691,7 +3694,8 @@ def _latex_para_imagem(escrita, titulo, destino):
         if linhas and not any(t in ('etapa', 'final') for t, v in linhas):
             linhas.insert(0, ('etapa', 'Passo 1 — Desenvolvimento'))
         altura = 1.15 + sum(.85 if t in ('etapa', 'final') else .65 for t, v in linhas)
-        fig = plt.figure(figsize=(13, max(3.5, altura)), dpi=145, facecolor='white')
+        fig = Figure(figsize=(13, max(3.5, altura)), dpi=110, facecolor='white')
+        FigureCanvasAgg(fig)
         altura = max(3.5, altura)
         fig.text(.045, 1-.20/altura, titulo, fontsize=22, fontweight='bold', va='top', color='#17233a')
         pos = .95
@@ -3709,13 +3713,30 @@ def _latex_para_imagem(escrita, titulo, destino):
                     texto = '$' + conteudo + '$' if tipo == 'math' and not fallback else conteudo
                     fig.text(.055, 1-pos/altura, texto, fontsize=16 if tipo == 'math' else 14, va='top', color='#111827', fontfamily='DejaVu Sans', bbox=caixa)
                     pos += .65
-            fig.savefig(destino, dpi=145, facecolor='white', bbox_inches='tight', pad_inches=.25)
+            fig.savefig(temporario, format='png', dpi=110, facecolor='white', transparent=False)
         finally:
-            plt.close(fig)
+            fig.clear()
+    temporario = destino + "." + uuid.uuid4().hex + ".tmp"
+    def validar():
+        with Image.open(temporario) as im:
+            im.load()
+            if im.mode == "RGBA" and im.getchannel("A").getextrema() != (255, 255):
+                raise ValueError("PNG com transparência inesperada")
+            if im.width < 100 or im.height < 100:
+                raise ValueError("PNG com dimensões inválidas")
+        os.replace(temporario, destino)
     try:
-        desenhar(itens)
-    except Exception:
-        desenhar([('text', linha) for linha in escrita.splitlines()], fallback=True)
+        with _trava_render_png:
+            try:
+                desenhar(itens)
+                validar()
+            except Exception as erro:
+                print("Render PNG: fallback:", repr(erro), flush=True)
+                desenhar([('text', linha) for linha in escrita.splitlines()], fallback=True)
+                validar()
+    finally:
+        if os.path.exists(temporario):
+            os.remove(temporario)
     return destino
 
 
