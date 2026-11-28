@@ -36,7 +36,7 @@ GERAR_RESOLUCOES_AUTOMATICAS = os.environ.get("GERAR_RESOLUCOES_AUTOMATICAS", "1
 # CONFIGURAÇÃO
 # =========================================================
 
-AUDIO_DIR = "/tmp/audios"
+AUDIO_DIR = "/tmp/audios" 
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
