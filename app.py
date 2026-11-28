@@ -3191,8 +3191,8 @@ PROMPT_DITADO_EXERCICIO = (
     "caso contrário sinal de multiplicação; · = sinal de multiplicação escalar entre vetores; "
     "÷ = sinal de divisão. Não omita sinais dentro de parênteses, frações ou resultados. "
     "Pronuncie ∂ como dél, jamais derivada parcial. "
-    "Para cada fração vertical diga: Fração, numerador, [expressão de cima], "
-    "denominador, [expressão de baixo], fim da fração. "
+    "Para cada fração, vertical ou escrita com / ou ⁄, diga: Fração, numerador, [expressão de cima], "
+    "denominador, [expressão de baixo], fim da fração. Nunca diga barra em uma fração. Preserve o sinal externo e os agrupamentos. Exemplo: -3/5 = sinal menos, fração, numerador três, denominador cinco, fim da fração. "
     "Leia parênteses como abre parênteses e fecha parênteses, expoentes como ao quadrado, "
     "ao cubo etc., e índices como subscrito xis, subscrito ípsilon, subscrito zê. "
     "REGRA OBRIGATÓRIA DE MAIÚSCULAS PARA TODAS AS LETRAS: sempre que uma letra "
@@ -3336,6 +3336,12 @@ def narrar_texto_aprovado(escrita):
             'Pronuncie ∂ como dél, NUNCA derivada parcial. '
             'Para cada fração diga Fração, numerador, conteúdo de cima, denominador, '
             'conteúdo de baixo, fim da fração, preservando cada sinal em ambos. '
+            'Esta regra vale igualmente para frações verticais, LaTeX e frações escritas com / ou ⁄. '
+            'Nunca pronuncie barra nem dividido por quando a barra representar uma fração. '
+            'Exemplos: 3/2 = fração, numerador três, denominador dois, fim da fração; '
+            '−1/10 = sinal menos, fração, numerador um, denominador dez, fim da fração. '
+            'Respeite a precedência e os agrupamentos do numerador e denominador, inclusive frações aninhadas. '
+            'Não altere barras que não representem frações matemáticas. '
             'Leia ( como abre parênteses, ) como fecha parênteses, ² como ao quadrado, '
             '³ como ao cubo, x como xis, y como ípsilon, z como zê. '
             'Regra obrigatória para TODAS as letras: pronuncie explicitamente maiúsculo '
@@ -3648,6 +3654,7 @@ def _latex_para_imagem(escrita, titulo, destino):
         'Use \\frac{\\partial(...)}{\\partial y} para derivadas parciais, '
         'frações verticais \\frac{a}{b}, \\nabla, \\times, \\cdot, '
         'expoentes ^{2} e subscritos _{x}. '
+        r'OBRIGATÓRIO: represente TODAS as frações matemáticas com \frac{numerador}{denominador}, inclusive numéricas, algébricas, derivadas, primitivas, limites e resultados intermediários e finais. Nunca deixe / ou ⁄ como operador de fração em MAT. Exemplos: 3/2 vira \frac{3}{2}; -1/10 vira -\frac{1}{10}; t^2/2 vira \frac{t^{2}}{2}. Preserve precedência, sinais e agrupamentos; não simplifique nem recalcule. Revise todas as linhas MAT antes de responder. '
         'Não use \\begin, \\end, \\left, \\right, \\text, alinhamentos, '
         'delimitadores $ ou \\[. '
         'Mathtext do matplotlib será usado, portanto produza comandos simples. '
@@ -3675,6 +3682,13 @@ def _latex_para_imagem(escrita, titulo, destino):
         print('Conversão visual: usando texto original:', repr(erro), flush=True)
         convertidas = {}
     itens = [convertidas.get(i, ('text', v)) if convertidas.get(i, ('text', v))[0] == 'math' and not re.match(r'^(?:Escrever\s*:|Passo\b|Resultado final\b|Rotacional\s*:?$|Divergente\s*:?$|Função potencial\s*:?$)', v, re.I) else ('text', v) for i,v in enumerate(originais,1)]
+    # Segunda proteção: corrige frações numéricas simples que escaparam da IA.
+    # Expressões complexas ficam a cargo da conversão LaTeX para preservar a precedência.
+    def corrigir_fracoes_numericas(valor):
+        return re.sub(r"(?<![\w.}^/⁄])([0-9]+)\s*[/⁄]\s*([0-9]+)(?![\w.0-9^/⁄])",
+                      lambda m: r"\frac{" + m[1] + "}{" + m[2] + "}", valor)
+    itens = [(tipo, corrigir_fracoes_numericas(valor) if tipo == 'math' else valor)
+             for tipo, valor in itens]
     def desenhar(itens, fallback=False):
         from matplotlib.lines import Line2D
         import re
