@@ -832,7 +832,7 @@ audio {
 
 <div id="visualizarResolucaoModal" class="galeria-modal" style="z-index:1001;">
     <div class="galeria-caixa">
-        <div class="galeria-topo"><h2 id="tituloVisualizarResolucao">Resolução</h2>
+        <div class="galeria-topo" style="position:sticky;top:0;background:#0d1117;padding:10px 0;z-index:1;"><h2 id="tituloVisualizarResolucao">Resolução</h2>
             <button id="voltarResolucoes" style="background:#30363d;color:white;">← VOLTAR PARA RESOLUÇÕES</button></div>
         <img id="imagemVisualizarResolucao" alt="Resolução" style="display:block;width:100%;height:auto;background:white;">
     </div>
@@ -1064,8 +1064,9 @@ let fotoResolucoesSelecionada = null;
 let origemGaleriaFotos = false;
 let scrollGaleriaFotos = 0;
 const visualizarResolucaoModal = document.getElementById("visualizarResolucaoModal");
-function visualizarResolucao(item) {
-    document.getElementById("tituloVisualizarResolucao").textContent = "Resolução";
+function visualizarResolucao(item, origem = "resolucoes") {
+    document.getElementById("tituloVisualizarResolucao").textContent = origem === "fotos" ? "Foto original" : "Resolução";
+    document.getElementById("voltarResolucoes").textContent = origem === "fotos" ? "← VOLTAR PARA GALERIA" : "← VOLTAR PARA RESOLUÇÕES";
     document.getElementById("imagemVisualizarResolucao").src = item.url;
     visualizarResolucaoModal.classList.add("aberta");
     visualizarResolucaoModal.scrollTop = 0;
@@ -1097,8 +1098,10 @@ async function carregarResolucoes() {
         });
         imagensOrdenadas.forEach(item => {
             const card = document.createElement("div"); card.className = "foto-card";
-            const a = document.createElement("a"); a.href = item.url;
-            a.onclick = function(e) { e.preventDefault(); visualizarResolucao(item); };
+            const a = document.createElement("button"); a.type = "button";
+            a.style.cssText = "display:block;width:100%;padding:0;background:transparent;border-radius:0;";
+            a.setAttribute("aria-label", "Ampliar resolução " + item.nome);
+            a.onclick = function() { visualizarResolucao(item); };
             const img = document.createElement("img"); img.src = item.url; img.alt = item.nome;
             a.appendChild(img); card.appendChild(a);
             const info = document.createElement("div"); info.className = "foto-info";
@@ -1833,15 +1836,18 @@ async function carregarGaleria() {
             img.src = foto.url;
             img.alt = foto.nome;
             img.loading = "lazy";
-            img.onclick = function() {
-                window.open(foto.url, "_blank");
-            };
+            const ampliar = document.createElement("button");
+            ampliar.type = "button";
+            ampliar.style.cssText = "display:block;width:100%;padding:0;background:transparent;border-radius:0;";
+            ampliar.setAttribute("aria-label", "Ampliar foto " + foto.nome);
+            ampliar.onclick = function() { visualizarResolucao(foto, "fotos"); };
+            ampliar.appendChild(img);
 
             const info = document.createElement("div");
             info.className = "foto-info";
             info.textContent = foto.nome;
 
-            card.appendChild(img);
+            card.appendChild(ampliar);
             card.appendChild(info);
             const botaoResolucoes = document.createElement("button");
             botaoResolucoes.type = "button";
@@ -4423,7 +4429,7 @@ small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio
 <label>Número ou item a resolver (opcional): <input id="numero" placeholder="Ex.: 1 ou 1a" style="width:150px"></label>
 <p><button id="resolver" type="submit">Resolver e mostrar narração</button></p></form><div id="estado" role="status"></div></section>
 <section id="resultado" style="display:none">
-<div class="painel"><h2>1. Resolução em imagem</h2><small>Frações verticais e cálculos diretos, sem passos triviais repetidos. PNG gerado no servidor.</small><p><a id="baixarImagem" href="#" target="_blank">Abrir imagem em tamanho original</a></p><img id="imagemResolucao" alt="Resolução matemática renderizada" style="display:block;max-height:none;width:100%;height:auto;background:white;border-radius:8px"></div>
+<div class="painel"><h2>1. Resolução em imagem</h2><small>Frações verticais e cálculos diretos, sem passos triviais repetidos. PNG gerado no servidor.</small><p><a id="baixarImagem" href="#">Abrir imagem em tamanho original</a></p><img id="imagemResolucao" alt="Resolução matemática renderizada" style="display:block;max-height:none;width:100%;height:auto;background:white;border-radius:8px"></div>
 <div class="painel"><h2>Resolução em texto (cópia)</h2><pre id="escrita"></pre></div>
 <div class="painel"><h2>Correção do padrão da IA</h2>
 <small>Se a resolução estiver diferente do esperado, cole a versão correta e registre o erro. Os exemplos aprovados serão usados nas próximas questões, inclusive da ESP32.</small>
@@ -4435,6 +4441,15 @@ small{color:#8b949e}img{max-width:100%;max-height:280px;object-fit:contain}audio
 </section></main><script>
 const form=document.getElementById('form'),imagem=document.getElementById('imagem'),preview=document.getElementById('preview');
 let audioUrl=null;
+const visorTreino = document.createElement('dialog');
+visorTreino.style.cssText = 'width:95%;max-width:1200px;max-height:90vh;overflow:auto;background:#161b22;color:white;border:1px solid #484f58;border-radius:12px;';
+const voltarTreino = document.createElement('button'); voltarTreino.textContent = '← VOLTAR';
+const fotoTreino = document.createElement('img'); fotoTreino.style.cssText = 'display:block;width:100%;max-height:none;height:auto;margin-top:12px;background:white;';
+visorTreino.append(voltarTreino,fotoTreino); document.body.appendChild(visorTreino);
+voltarTreino.onclick = () => visorTreino.close();
+function ampliarTreino(url) { if(url && !visorTreino.open) { fotoTreino.src=url; visorTreino.showModal(); visorTreino.scrollTop=0; } }
+document.getElementById('baixarImagem').onclick = e => { e.preventDefault(); ampliarTreino(document.getElementById('imagemResolucao').src); };
+document.getElementById('imagemResolucao').onclick = () => ampliarTreino(document.getElementById('imagemResolucao').src);
 imagem.addEventListener('change',()=>{if(imagem.files[0]){preview.src=URL.createObjectURL(imagem.files[0]);preview.style.display='block'}});
 form.addEventListener('submit',async ev=>{ev.preventDefault();const btn=document.getElementById('resolver');btn.disabled=true;document.getElementById('estado').textContent='Analisando imagem, resolvendo e revisando...';document.getElementById('resultado').style.display='none';
 try{const dados=new FormData();dados.append('imagem',imagem.files[0]);dados.append('numero',document.getElementById('numero').value);
