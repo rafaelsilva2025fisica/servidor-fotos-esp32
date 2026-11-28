@@ -823,9 +823,18 @@ audio {
 <div id="resolucoesModal" class="galeria-modal">
     <div class="galeria-caixa">
         <div class="galeria-topo"><h2>📐 Resoluções automáticas</h2>
+            <button id="voltarGaleriaFotos" style="display:none;background:#30363d;color:white;">← VOLTAR PARA GALERIA</button>
             <button id="fecharResolucoes" style="background:#30363d;color:white;">FECHAR</button></div>
         <div id="resolucoesEstado" style="color:#8b949e;margin-bottom:14px;"></div>
         <div id="resolucoesGrid" class="galeria-grid"></div>
+    </div>
+</div>
+
+<div id="visualizarResolucaoModal" class="galeria-modal" style="z-index:1001;">
+    <div class="galeria-caixa">
+        <div class="galeria-topo"><h2 id="tituloVisualizarResolucao">Resolução</h2>
+            <button id="voltarResolucoes" style="background:#30363d;color:white;">← VOLTAR PARA RESOLUÇÕES</button></div>
+        <img id="imagemVisualizarResolucao" alt="Resolução" style="display:block;width:100%;height:auto;background:white;">
     </div>
 </div>
 
@@ -1052,6 +1061,23 @@ const apagarTodosAudios = document.getElementById("apagarTodosAudios");
 const resolucoesModal = document.getElementById("resolucoesModal");
 let atualizadorResolucoes = null;
 let fotoResolucoesSelecionada = null;
+let origemGaleriaFotos = false;
+let scrollGaleriaFotos = 0;
+const visualizarResolucaoModal = document.getElementById("visualizarResolucaoModal");
+function visualizarResolucao(item) {
+    document.getElementById("tituloVisualizarResolucao").textContent = "Resolução";
+    document.getElementById("imagemVisualizarResolucao").src = item.url;
+    visualizarResolucaoModal.classList.add("aberta");
+    visualizarResolucaoModal.scrollTop = 0;
+}
+function voltarResolucoes() {
+    visualizarResolucaoModal.classList.remove("aberta");
+    document.getElementById("imagemVisualizarResolucao").removeAttribute("src");
+}
+document.getElementById("voltarResolucoes").onclick = voltarResolucoes;
+visualizarResolucaoModal.onclick = function(e) {
+    if (e.target === visualizarResolucaoModal) voltarResolucoes();
+};
 async function carregarResolucoes() {
     try {
         const filtro = fotoResolucoesSelecionada ? "&foto=" + encodeURIComponent(fotoResolucoesSelecionada) : "";
@@ -1071,7 +1097,8 @@ async function carregarResolucoes() {
         });
         imagensOrdenadas.forEach(item => {
             const card = document.createElement("div"); card.className = "foto-card";
-            const a = document.createElement("a"); a.href = item.url; a.target = "_blank"; a.rel = "noopener";
+            const a = document.createElement("a"); a.href = item.url;
+            a.onclick = function(e) { e.preventDefault(); visualizarResolucao(item); };
             const img = document.createElement("img"); img.src = item.url; img.alt = item.nome;
             a.appendChild(img); card.appendChild(a);
             const info = document.createElement("div"); info.className = "foto-info";
@@ -1094,7 +1121,9 @@ async function carregarResolucoes() {
             : "Resoluções disponíveis: " + (dados.imagens || []).length;
     } catch(e) { document.getElementById("resolucoesEstado").textContent = "Erro: " + e.message; }
 }
-function abrirBibliotecaResolucoes(foto = null) {
+function abrirBibliotecaResolucoes(foto = null, veioDaGaleria = false) {
+    origemGaleriaFotos = veioDaGaleria;
+    document.getElementById("voltarGaleriaFotos").style.display = veioDaGaleria ? "inline-block" : "none";
     fotoResolucoesSelecionada = foto;
     resolucoesModal.querySelector("h2").textContent = foto
         ? "📐 Resoluções da foto: " + foto
@@ -1107,9 +1136,17 @@ function abrirBibliotecaResolucoes(foto = null) {
 document.getElementById("abrirResolucoes").onclick = function() {
     abrirBibliotecaResolucoes();
 };
-document.getElementById("fecharResolucoes").onclick = function() {
+function fecharBibliotecaResolucoes() {
+    voltarResolucoes();
     resolucoesModal.classList.remove("aberta"); clearInterval(atualizadorResolucoes);
-};
+    if (origemGaleriaFotos) {
+        galeriaModal.classList.add("aberta");
+        galeriaModal.scrollTop = scrollGaleriaFotos;
+    }
+    origemGaleriaFotos = false;
+}
+document.getElementById("fecharResolucoes").onclick = fecharBibliotecaResolucoes;
+document.getElementById("voltarGaleriaFotos").onclick = fecharBibliotecaResolucoes;
 resolucoesModal.onclick = function(e) {
     if (e.target === resolucoesModal) document.getElementById("fecharResolucoes").click();
 };
@@ -1811,8 +1848,9 @@ async function carregarGaleria() {
             botaoResolucoes.textContent = "📐 Ver resoluções desta foto";
             botaoResolucoes.style.cssText = "margin:8px;width:calc(100% - 16px);padding:10px;cursor:pointer;";
             botaoResolucoes.onclick = function() {
+                scrollGaleriaFotos = galeriaModal.scrollTop;
                 galeriaModal.classList.remove("aberta");
-                abrirBibliotecaResolucoes(foto.nome);
+                abrirBibliotecaResolucoes(foto.nome, true);
             };
             card.appendChild(botaoResolucoes);
             const baixarFoto = document.createElement("a");
