@@ -1181,7 +1181,7 @@ async function carregarResolucoes() {
         });
         imagensOrdenadas.forEach(item => {
             const anterior = cardsAnteriores.get(item.nome);
-            if (anterior) { anterior.atualizarAudio(item); grid.appendChild(anterior); return; }
+            if (anterior) { anterior.atualizarAudio(item); return; }
             const card = document.createElement("div"); card.className = "foto-card"; card.dataset.nome = item.nome;
             const a = document.createElement("button"); a.type = "button";
             a.style.cssText = "display:block;width:100%;padding:0;background:transparent;border-radius:0;";
@@ -1205,15 +1205,28 @@ async function carregarResolucoes() {
             ouvir.style.cssText = "display:block;margin:8px;width:calc(100% - 16px);padding:12px;";
             const player = document.createElement("audio");
             player.controls = true;
-            player.style.cssText = "display:none;width:100%;";
+            player.preload = "none";
+            player.style.cssText = "display:none;width:100%;margin:8px 0;";
+            player.onplay = () => {
+                if (playerResolucaoAtivo && playerResolucaoAtivo !== player) playerResolucaoAtivo.pause();
+                playerResolucaoAtivo = player;
+            };
             let atual = item;
             card.atualizarAudio = function(novo) {
                 atual = novo;
                 const estado = novo.audio_estado;
-                const rotulos = {aguardando:"⏳ AGUARDANDO ÁUDIO", gerando:"⏳ GERANDO ÁUDIO...", pronto:"🔊 ESCUTAR ÁUDIO", erro:"🔄 TENTAR NOVAMENTE", disponivel:"🎵 GERAR ÁUDIO", indisponivel:"ÁUDIO INDISPONÍVEL"};
+                const rotulos = {aguardando:"⏳ AGUARDANDO ÁUDIO", gerando:"⏳ GERANDO ÁUDIO...", pronto:"🔊 ESCUTAR ÁUDIO", erro:"🔄 TENTAR NOVAMENTE", disponivel:"🎵 CRIAR ÁUDIO", indisponivel:"ÁUDIO INDISPONÍVEL"};
                 ouvir.textContent = rotulos[estado] || rotulos.indisponivel;
                 ouvir.disabled = !["pronto", "erro", "disponivel"].includes(estado);
                 ouvir.title = novo.audio_erro || "";
+                if (estado === "pronto" && novo.audio_url) {
+                    if (player.getAttribute("src") !== novo.audio_url) player.src = novo.audio_url;
+                    player.style.display = "block";
+                } else {
+                    player.pause();
+                    player.removeAttribute("src");
+                    player.style.display = "none";
+                }
                 ouvir.style.background = estado === "pronto" ? "#2563eb" : estado === "erro" ? "#b91c1c" : estado === "gerando" ? "#b45309" : "#64748b";
             };
             card.atualizarAudio(item);
@@ -1233,7 +1246,7 @@ async function carregarResolucoes() {
                         if (!resposta.ok) throw new Error(dadosAudio.erro || "Falha ao solicitar áudio");
                         await carregarResolucoes();
                     }
-                } catch(e) { ouvir.disabled = false; ouvir.textContent = "🔄 TENTAR NOVAMENTE"; alert(e.message); }
+                } catch(e) { assinaturaResolucoes = null; ouvir.disabled = false; ouvir.textContent = "🔄 TENTAR NOVAMENTE"; alert(e.message); }
             };
             card.appendChild(ouvir); card.appendChild(player);
             grid.appendChild(card);
@@ -3777,9 +3790,6 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios, manual=False):
                 try:
                     escrita = obter_resolucao_compartilhada(nome, numero, "data:image/jpeg;base64," + foto_b64,
                                                   material_base_file_id, i)
-                    if manual:
-                        registro = _resolucoes_compartilhadas[(nome, numero.strip().upper())]
-                        _solicitar_audio_individual(os.path.basename(registro['imagem']))
                 except Exception as erro:
                     print(f'GALERIA RESOLUCOES: erro no exercício {numero}: {erro!r}', flush=True)
                 finally:
