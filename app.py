@@ -9,6 +9,7 @@ import uuid
 import textwrap
 import html 
 import subprocess
+import json as json_volume
 import imageio_ffmpeg
 from datetime import datetime
 from openai import OpenAI
@@ -50,6 +51,41 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY, timeout=90.0, max_retries=1) if O
 
 # RLock evita deadlock quando uma rotina com lock chama outra que tambem usa lock.
 lock = threading.RLock()
+
+ARQUIVO_VOLUME = os.environ.get("ARQUIVO_VOLUME_AUDIO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "volume_audio.json"))
+volume_audio = 50
+try:
+    with open(ARQUIVO_VOLUME, encoding="utf-8") as f:
+        v = json_volume.load(f)["volume"]
+        if type(v) is int and 0 <= v <= 100:
+            volume_audio = v
+except (OSError, ValueError, KeyError, TypeError):
+    pass
+
+def filtro_volume_audio():
+    with lock:
+        return f"volume={volume_audio / 100:.2f}"
+
+@app.route("/api/config-volume", methods=["GET", "POST"])
+def configurar_volume_audio():
+    global volume_audio
+    with lock:
+        if request.method == "POST":
+            dados = request.get_json(silent=True)
+            v = dados.get("volume") if isinstance(dados, dict) else None
+            if type(v) is not int or not 0 <= v <= 100:
+                return jsonify(erro="Volume deve ser inteiro de 0 a 100."), 400
+            try:
+                temporario = ARQUIVO_VOLUME + ".tmp"
+                with open(temporario, "w", encoding="utf-8") as f:
+                    json_volume.dump({"volume": v}, f)
+                os.replace(temporario, ARQUIVO_VOLUME)
+            except OSError:
+                app.logger.exception("Falha ao salvar volume")
+                return jsonify(erro="Não foi possível salvar a configuração."), 500
+            volume_audio = v
+        return jsonify(volume=volume_audio)
+
 
 ultimo_sinal_esp = 0.0
 esp_ws = None
@@ -730,6 +766,13 @@ audio {
 
         </div>
 
+        <div class="status-card" style="text-align:left;">
+            <h2 style="margin-top:0;font-size:18px;">🔊 Volume de geração da IA</h2>
+            <label for="volumeGeracao">Volume: <strong id="volumeGeracaoValor">—</strong></label>
+            <input id="volumeGeracao" type="range" min="0" max="100" step="1" value="50" disabled style="width:100%;margin:15px 0;">
+            <button id="salvarVolumeGeracao" disabled style="background:#238636;color:white;width:100%;">SALVAR CONFIGURAÇÃO</button>
+            <div id="volumeGeracaoStatus" class="detalhe" role="status">Carregando configuração...</div>
+        </div>
         <div class="audio-card">
 
             <h2>🎙️ Enviar áudio</h2>
@@ -1027,6 +1070,33 @@ let partes = [];
 let audioBlob = null;
 let audioAtualId = null;
 
+const volumeGeracao = document.getElementById("volumeGeracao");
+const volumeGeracaoValor = document.getElementById("volumeGeracaoValor");
+const salvarVolumeGeracao = document.getElementById("salvarVolumeGeracao");
+const volumeGeracaoStatus = document.getElementById("volumeGeracaoStatus");
+volumeGeracao.oninput = () => { volumeGeracaoValor.textContent = volumeGeracao.value + "%"; volumeGeracaoStatus.textContent = "Alteração ainda não salva."; };
+async function carregarVolumeGeracao() {
+    try {
+        const r = await fetch("/api/config-volume", {cache:"no-store"});
+        if (!r.ok) throw new Error("Falha ao consultar volume");
+        const d = await r.json();
+        volumeGeracao.value = d.volume;
+        volumeGeracaoValor.textContent = d.volume + "%";
+        volumeGeracaoStatus.textContent = "Volume salvo: " + d.volume + "%. Aplica-se aos novos áudios.";
+        volumeGeracao.disabled = salvarVolumeGeracao.disabled = false;
+    } catch(e) { volumeGeracaoStatus.textContent = e.message; }
+}
+salvarVolumeGeracao.onclick = async () => {
+    volumeGeracao.disabled = salvarVolumeGeracao.disabled = true;
+    try {
+        const r = await fetch("/api/config-volume", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({volume:Number(volumeGeracao.value)})});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.erro || "Falha ao salvar");
+        volumeGeracaoStatus.textContent = "Volume salvo: " + d.volume + "%. Aplica-se aos novos áudios.";
+    } catch(e) { volumeGeracaoStatus.textContent = e.message; }
+    finally { volumeGeracao.disabled = salvarVolumeGeracao.disabled = false; }
+};
+carregarVolumeGeracao();
 const botaoGravar = document.getElementById("gravar");
 const botaoParar = document.getElementById("parar");
 const botaoEnviar = document.getElementById("enviar");
@@ -2988,6 +3058,7 @@ def criar_e_enviar_audio_ia(texto, menu=False, velocidade=1.0):
             "-y",
             "-i", caminho_mp3,
             "-vn",
+            "-af", filtro_volume_audio(),
             "-acodec", "pcm_s16le",
             "-ar", "8000",
             "-ac", "1",
@@ -3663,7 +3734,7 @@ def criar_audio_simulacao(escrita, numero, nome, imagem_nome=None):
         fala = openai_client.audio.speech.create(model=OPENAI_TTS_MODEL,
             voice=OPENAI_TTS_VOICE, input=texto, response_format="mp3", speed=0.6)
         fala.stream_to_file(caminho_mp3)
-        subprocess.run([FFMPEG, "-y", "-i", caminho_mp3, "-vn", "-acodec",
+        subprocess.run([FFMPEG, "-y", "-i", caminho_mp3, "-vn", "-af", filtro_volume_audio(), "-acodec",
                         "pcm_s16le", "-ar", "8000", "-ac", "1", caminho_wav],
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=True)
         with lock:
@@ -4589,7 +4660,8 @@ def treinador_audio():
         # Prévia separada: não entra na galeria de áudio nem envia via WebSocket.
         fala=openai_client.audio.speech.create(model=OPENAI_TTS_MODEL,voice=OPENAI_TTS_VOICE,input=texto,response_format='mp3')
         from io import BytesIO
-        return send_file(BytesIO(fala.content),mimetype='audio/mpeg',download_name='previa_treinador.mp3')
+        resultado = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-af", filtro_volume_audio(), "-f", "mp3", "pipe:1"], input=fala.content, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=True)
+        return send_file(BytesIO(resultado.stdout),mimetype='audio/mpeg',download_name='previa_treinador.mp3')
     except Exception as erro:
         app.logger.exception('Erro no TTS de treinamento')
         return jsonify({'erro':'Falha ao gerar a voz: '+str(erro)}), 502
