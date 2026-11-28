@@ -3127,7 +3127,7 @@ def garantir_titulo_resultado_final(resolucao):
     return "\n".join(linhas + ["", "Resultado final", ultima]).strip()
 
 
-def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
+def resolver_texto_aprovado(numero, imagem_url, arquivo_base_id=None):
     """Fluxo único para laboratório e exercícios escritos enviados pela ESP32."""
     conteudo = [{'type': 'input_text', 'text': (
         f'Leia a imagem e resolva SOMENTE o exercício {numero}.\n' +
@@ -3161,6 +3161,10 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
 
     escrita = garantir_titulo_resultado_final(escrita)
 
+    return escrita
+
+
+def narrar_texto_aprovado(escrita):
     # A narração acompanha a resolução escrita, linha por linha, sem alterar a matemática.
     # As quebras são enumeradas para reduzir a chance de a IA pular a locução de transição.
     linhas_escritas = [linha.strip() for linha in escrita.splitlines() if linha.strip()]
@@ -3190,6 +3194,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
             'subscrito ípsilon; R_z = érre maiúsculo subscrito zê; X = xis maiúsculo; '
             'x = xis. Para ∇ diga sinal de gradiente. '
             'Não acrescente explicações, justificativas, contas nem palavras introdutórias. '
+            'Leia todos os termos e sinais de cada linha, inclusive zeros e cancelamentos. Nunca resuma. '
             'Não diga Pula linha nem Próxima linha. Sem Markdown ou LaTeX. '
             'Responda SOMENTE o texto que será falado. '
             'EXEMPLO DE LEITURA: Rₓ = 6y − 4y = 2y vira '
@@ -3203,7 +3208,12 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
     narracao = (terceira.output_text or '').strip()
     if not narracao:
         raise ValueError('A IA não produziu o texto para áudio.')
-    return escrita, narracao
+    return narracao
+
+
+def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
+    escrita = resolver_texto_aprovado(numero, imagem_url, arquivo_base_id)
+    return escrita, narrar_texto_aprovado(escrita)
 
 # =========================================================
 # IA - ANALISA SOMENTE A FOTO NOVA RECEBIDA DA ESP32
@@ -3508,7 +3518,7 @@ def _latex_para_imagem(escrita, titulo, destino):
     except Exception as erro:
         print('Conversão visual: usando texto original:', repr(erro), flush=True)
         convertidas = {}
-    itens = [convertidas.get(i, ('text', v)) for i,v in enumerate(originais,1)]
+    itens = [convertidas.get(i, ('text', v)) if convertidas.get(i, ('text', v))[0] == 'math' and not re.match(r'^(?:Passo\b|Resultado final\b|Rotacional\s*:?$|Divergente\s*:?$|Função potencial\s*:?$)', v, re.I) else ('text', v) for i,v in enumerate(originais,1)]
     def desenhar(itens, fallback=False):
         from matplotlib.lines import Line2D
         import re
@@ -3565,6 +3575,26 @@ def _criar_png_resolucao(escrita, titulo, prefixo='treinador'):
     return '/resolucoes/' + nome
 
 
+# Fonte compartilhada entre galeria e áudio, por foto e subitem.
+_resolucoes_compartilhadas = {}
+_travas_resolucoes = {}
+
+def obter_resolucao_compartilhada(nome, numero, imagem_url, arquivo_base_id, indice):
+    chave = (nome, str(numero).strip().upper())
+    with resolucoes_lock:
+        trava = _travas_resolucoes.setdefault(chave, threading.Lock())
+    with trava:
+        registro = _resolucoes_compartilhadas.get(chave)
+        if registro is None:
+            escrita = resolver_texto_aprovado(numero, imagem_url, arquivo_base_id)
+            registro = {'escrita': escrita, 'imagem': None}
+            _resolucoes_compartilhadas[chave] = registro
+        if registro['imagem'] is None:
+            registro['imagem'] = _criar_png_resolucao(registro['escrita'], f'Exercício {numero}',
+                prefixo=f'{os.path.splitext(nome)[0]}__{indice:02d}')
+        return registro['escrita']
+
+
 def iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios):
     if openai_client is None or not exercicios:
         return
@@ -3587,62 +3617,8 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                 numero = str(exercicio.get("numero", i))
                 enunciado = str(exercicio.get("enunciado", ""))
                 try:
-                    resposta = openai_client.responses.create(
-                        model=OPENAI_MODEL,
-                        input=[{"role": "user", "content": [
-                            {"type": "input_text", "text": (
-                                "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
-                                + REGRA_COMPLETUDE_CURVAS + " "
-                                + PADRAO_RESOLUCAO + "\n" + contexto_exemplos() + "\nConfira a FOTO ORIGINAL: " + enunciado + ". "
-                                "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
-                                "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
-                                "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
-                                "por exemplo INT{y²}{1} INT{0}{1−x} 1 dz dx. "
-                                "NUNCA use integrais com limites Unicode colados, como ∫ᵧ²¹. "
-                                "Coloque fórmulas longas em linhas separadas. Use ², ³ e frações como (a)/(b). "
-                                "Na resposta final, escreva somente a expressão matemática e seu valor, "
-                                "sem acrescentar palavras como cubo, cúbico, unidades cúbicas ou traduções estrangeiras. "
-                                "Use exclusivamente português brasileiro no texto explicativo."
-                            )},
-                            {"type": "input_image", "image_url": "data:image/jpeg;base64," + foto_b64}
-                        ]}]
-                    )
-                    conteudo = (resposta.output_text or "").strip()
-                    if not conteudo:
-                        raise ValueError("A IA retornou resolução vazia")
-                    # Auditoria independente: impede curvas fechadas incompletas.
-                    auditoria = openai_client.responses.create(
-                        model=OPENAI_MODEL,
-                        input=[{"role": "user", "content": [
-                            {"type": "input_text", "text": (
-                                "AUDITORIA MATEMÁTICA INDEPENDENTE do exercício " + numero + ". "
-                                + REGRA_COMPLETUDE_CURVAS +
-                                "Compare a solução com a FOTO ORIGINAL e com o enunciado. "
-                                "Verifique cada trecho de curva, orientação, integrais e resultado. "
-                                "Se faltar trecho, CORRIJA a resolução INTEIRA, mostrando-o e "
-                                "recalculando a soma. Não altere o escopo do subitem. "
-                                "Mesmo se correta, complete todas as etapas omitidas. Não resuma. " + PADRAO_RESOLUCAO + " "
-                                "Preserve texto Unicode, títulos sem numeração, INT{inferior}{superior} "
-                                "para integrais definidas e Resultado final uma única vez. "
-                                "Em todo exercício, use Resultado final uma única vez, antes da última expressão. "
-                                "Não use Markdown nem LaTeX. Responda SOMENTE a resolução revisada. "
-                                "ENUNCIADO IDENTIFICADO: " + enunciado +
-                                "\nRESOLUÇÃO A AUDITAR:\n" + conteudo
-                            )},
-                            {"type": "input_image", "image_url": "data:image/jpeg;base64," + foto_b64}
-                        ]}]
-                    )
-                    revisada = (auditoria.output_text or "").strip()
-                    if not revisada:
-                        raise ValueError("Auditoria matemática retornou texto vazio")
-                    conteudo = garantir_titulo_resultado_final(revisada)
-                    # Remove sufixos de unidade redundantes em outros idiomas na resposta final.
-                    import re
-                    conteudo = re.sub(r"(?im)(?<=\d)\s+(?:куб(?:ических)?|cubic\s+units?)\s*$", "", conteudo)
-                    # Imagem PNG de matemática, com frações verticais.
-                    # Mantém o prefixo da foto para o filtro da galeria.
-                    _criar_png_resolucao(conteudo, f'Exercício {numero}',
-                                        prefixo=f'{os.path.splitext(nome)[0]}__{i:02d}')
+                    obter_resolucao_compartilhada(nome, numero, "data:image/jpeg;base64," + foto_b64,
+                                                  material_base_file_id, i)
                 except Exception as erro:
                     print(f'GALERIA RESOLUCOES: erro no exercício {numero}: {erro!r}', flush=True)
                 finally:
@@ -4254,9 +4230,12 @@ def websocket_esp32(ws):
                             )
                             resolucao = (resposta.output_text or "").strip()
                         else:
-                            escrita_aprovada, resolucao = executar_resolucao_padronizada(
-                                numero, "data:image/jpeg;base64," + imagem_b64, arquivo_base_id
-                            )
+                            indice_galeria = next((i for i, item in enumerate(opcoes_exercicios, 1)
+                                if str(item.get("numero", "")).strip().upper() == str(numero).strip().upper()), 1)
+                            escrita_aprovada = obter_resolucao_compartilhada(
+                                nome_imagem, numero, "data:image/jpeg;base64," + imagem_b64,
+                                arquivo_base_id, indice_galeria)
+                            resolucao = narrar_texto_aprovado(escrita_aprovada)
                         if not resolucao:
                             resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
 
