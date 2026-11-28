@@ -7,7 +7,7 @@ import os
 import base64
 import uuid
 import textwrap
-import html
+import html 
 import subprocess
 import imageio_ffmpeg
 from datetime import datetime
@@ -3200,8 +3200,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
                     {
                         "type": "input_text",
                         "text": (
-                            "Leia a imagem e identifique cada QUESTÃO E CADA SUBITEM legível como opção INDEPENDENTE do menu, EXCETO questões de verdadeiro ou falso. "
-                            "REGRA PRIORITÁRIA: se a questão pedir V/F, verdadeiro/falso ou certo/errado para todos os subitens, devolva UMA ÚNICA opção com o número original, sem letra, incluindo todos os subitens e o enunciado comum. Exemplo: EXERCICIO 7: Marque V ou F; a) ...; b) ...; c) ...; d) ... . Esta exceção prevalece sobre todas as regras de separação abaixo. Não agrupe questões de múltipla escolha ou cálculo. "
+                            "Leia a imagem e identifique cada QUESTÃO E CADA SUBITEM legível como opção INDEPENDENTE do menu. "
                             "Se houver questão 1 com itens a e b, devolva EXERCICIO 1A e EXERCICIO 1B em linhas distintas. "
                             "Se houver questão 3 com itens a e b, devolva EXERCICIO 3A e EXERCICIO 3B. "
                             "Cada subitem deve trazer o enunciado comum da questão e a condição específica do subitem. "
@@ -3269,7 +3268,7 @@ def analisar_foto_nova_com_ia(caminho, nome):
                         "Confira na FOTO ORIGINAL se TODOS os exercícios identificados são questões "
                         "de múltipla escolha com alternativas para marcar (A/B/C/D/E ou similares). "
                         "Responda EXATAMENTE SIM se todos forem de múltipla escolha; "
-                        "caso haja alguma questão de verdadeiro ou falso, discursiva, cálculo sem alternativas ou dúvida, responda NAO."
+                        "caso haja alguma questão discursiva, cálculo sem alternativas ou dúvida, responda NAO."
                     )},
                     {"type": "input_image", "image_url": "data:image/jpeg;base64," + imagem_b64}
                 ]}]
@@ -3448,7 +3447,7 @@ def _latex_para_imagem(escrita, titulo, destino):
         'delimitadores $ ou \\[. '
         'Mathtext do matplotlib será usado, portanto produza comandos simples. '
         'Não agrupe operações de linhas distintas. '
-        'Nunca numere títulos de etapas e não use hífen ou travessão após Passo. Preserve como TXT os quatro títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, quando presentes; não transforme títulos em MAT. Preserve TODAS as linhas de integração, incluindo integrais indefinidas ∫(expressão) dx, dy ou dz, usando o comando int no LaTeX. Preserve o título Função potencial como TXT. '
+        'Organize TODOS os exercícios em etapas lógicas com títulos TXT: Passo 1 — descrição, Passo 2 — descrição, etc. Use TXT: Resultado final antes da resposta final. Não invente cálculos nem omita linhas. Preserve os títulos específicos de cada assunto, acrescentando numeração apenas na apresentação visual. Preserve como TXT os quatro títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, quando presentes; não transforme títulos em MAT. Preserve TODAS as linhas de integração, incluindo integrais indefinidas ∫(expressão) dx, dy ou dz, usando o comando int no LaTeX. Preserve o título Função potencial como TXT. '
         'Em derivadas de componentes, represente F_x, F_y, F_z diretamente no numerador: '
         r'use \frac{\partial F_x}{\partial x}, NUNCA \frac{\partial(F_x)}{\partial x}; '
         'não adicione parênteses que não existam no texto original. '
@@ -3465,174 +3464,53 @@ def _latex_para_imagem(escrita, titulo, destino):
             itens.append(('math', linha[4:].strip().strip('$')))
         elif linha.startswith('TXT:'):
             itens.append(('text', linha[4:].strip()))
-    # Remove enumeração automática dos títulos de etapas no PNG.
-    # Não altera expressões matemáticas nem números de exercícios.
-    import re as _re_cabecalhos
-    itens = [
-        (tp, _re_cabecalhos.sub(r'^\s*(?:\d+\s*[.)]\s*|Passo\s*[-–—:]\s*)',
-                                 lambda m: 'Passo ' if m.group(0).lstrip().lower().startswith('passo') else 'Passo ',
-                                 vl, count=1) if tp == 'text' and
-         _re_cabecalhos.match(r'^\s*(?:\d+\s*[.)]\s*|Passo\s*[-–—:]\s*)', vl) and
-         _re_cabecalhos.search(r'integração|integracao|verificação|verificacao|substituição|substituicao|simplificação|simplificacao|aplicação|aplicacao', vl, _re_cabecalhos.I)
-         else vl)
-        for tp, vl in itens
-    ]
     if not itens:
         raise ValueError('Conversão matemática sem linhas válidas.')
-    # Título obrigatório na imagem quando a resolução realmente calcula potencial.
-    # A conversão em LaTeX pode omitir títulos, por isso a inserção é feita no PNG.
-    import re as _re_pot
-    potencial = bool(_re_pot.search(r'(?:[φϕ]|\\(?:var)?phi)', escrita)) and bool(
-        _re_pot.search(r'(?:[∂∫]|\\(?:partial|int)|função potencial|funcao potencial)', escrita, _re_pot.I))
-    # A integral de linha pode USAR phi sem estar CALCULANDO a funcao potencial.
-    # Nao inserir automaticamente etapas de integracao no exercicio 1c.
-    potencial = potencial and bool(_re_pot.search(
-        r'(?:g\s*\(\s*y\s*,\s*z\s*\)|h\s*\(\s*z\s*\)|Passo\s+Integra[cç][aã]o|\\int\s*\(?\s*2xy)',
-        escrita, _re_pot.I))
-    if potencial:
-        tem_titulo = any(tipo == 'text' and _re_pot.search(r'fun[cç][aã]o\s+potencial|potencial\s+escalar', valor, _re_pot.I) for tipo, valor in itens)
-        if not tem_titulo:
-            itens.insert(0, ('text', 'Função potencial'))
-
-    # Organiza as etapas uma única vez, sem interpretar resultados
-    # intermediários como se fossem o resultado final.
-    if potencial:
-        import re as _re_etapas
-
-        def _normalizar_titulo(valor):
-            return _re_etapas.sub(r"[^a-z0-9]", "", valor.lower().translate(
-                str.maketrans("áàâãéêíóôõúç", "aaaaeeiooouc")))
-
-        def _etapa_textual(tipo, valor):
-            if tipo != 'text':
-                return None
-            t = _normalizar_titulo(valor)
-            if 'integracaoemx' in t: return 1
-            if 'integracaoemy' in t: return 2
-            if 'verificacaoemz' in t: return 3
-            if t in ('resultadofinal', 'resultado', 'resultadofinal:'): return 4
-            return None
-
-        # Remove TODOS os títulos das etapas recebidos do modelo.
-        # Isso impede títulos duplicados ou fora de ordem.
-        limpos = [(tp, vl) for tp, vl in itens if _etapa_textual(tp, vl) is None]
-        titulos = {
-            1: 'Passo Integração em x',
-            2: 'Passo Integração em y',
-            3: 'Passo Verificação em z',
-            4: 'Resultado final',
-        }
-
-        def _detectar_etapa(tipo, valor):
-            if tipo != 'math':
-                return None
-            t = _re_etapas.sub(r'\s+', '', valor.lower())
-            # A detecção das etapas não classifica a função potencial
-            # completa como resultado, pois ela também pode surgir no meio.
-            if ('partial' in t or '∂' in t) and ('partialz' in t or '∂z' in t) and ('phi' in t or 'φ' in t or 'ϕ' in t):
-                return 3
-            if ('h' in t and ('prime' in t or "'" in t)) or ('h(z)' in t and '=c' in t):
-                return 3
-            if ('g(' in t or 'partialg' in t or '∂g' in t) and ('partialy' in t or '∂y' in t or 'dy' in t):
-                return 2
-            if ('phi' in t or 'φ' in t or 'ϕ' in t) and ('partialx' in t or '∂x' in t or ('int' in t and 'dx' in t)):
-                return 1
-            return None
-
-        # O último cálculo com phi(x,y,z) = ... é o resultado final.
-        # Nunca marca como resultado final um cálculo intermediário.
-        pos_final = None
-        for i, (tp, vl) in enumerate(limpos):
-            if tp == 'math':
-                t = _re_etapas.sub(r'\s+', '', vl.lower())
-                if ('phi(x,y,z)' in t or 'φ(x,y,z)' in t or 'ϕ(x,y,z)' in t) and '=' in t and 'partial' not in t and '∂' not in t:
-                    pos_final = i
-
-        # As etapas são posicionadas pelo primeiro cálculo que lhes pertence.
-        marcadores = {}
-        for i, (tp, vl) in enumerate(limpos):
-            etapa = _detectar_etapa(tp, vl)
-            if etapa in (1, 2, 3) and etapa not in marcadores:
-                marcadores[etapa] = i
-        if pos_final is not None:
-            marcadores[4] = pos_final
-        if marcadores:
-            organizados = []
-            # Cada título é inserido uma única vez, na posição calculada.
-            for i, item in enumerate(limpos):
-                for etapa in (1, 2, 3, 4):
-                    if marcadores.get(etapa) == i:
-                        organizados.append(('text', titulos[etapa]))
-                organizados.append(item)
-            itens = organizados
-        else:
-            itens = limpos
-
-    # Insere os títulos no próprio PNG, independentemente de a IA esquecê-los.
-    # Detecta a notação matemática (R_x, R_y, R_z, nabla cross/dot,
-    # derivadas de F_x/F_y/F_z) e não inventa seções para outros exercícios.
-    def classificar_secao(tipo, valor):
-        import re
-        t = valor.strip().replace('\\', '')
-        t = re.sub(r'\s+', '', t).lower()
-        if tipo == 'text':
-            if t in ('rotacional', 'rotacional:', 'cálculodorotacional'):
-                return 'Rotacional'
-            if t in ('divergente', 'divergente:', 'divergência', 'divergência:'):
-                return 'Divergente'
-        # Os resultados de rotacional têm R_x/R_y/R_z ou nabla x F.
-        if re.match(r'^r(?:_[{]?[xyz][}]?|[ₓᵧz])\s*=', t) or ('nabla' in t and 'times' in t):
-            return 'Rotacional'
-        if ('nabla' in t and 'cdot' in t) or ('∇' in t and '·' in t):
-            return 'Divergente'
-        if ('partial' in t or '∂' in t) and re.search(r'f(?:_[{]?[xyz][}]?|[ₓᵧz])', t):
-            return 'Divergente'
-        return None
-
-    secoes = {classificar_secao(tipo, valor) for tipo, valor in itens}
-    if 'Rotacional' in secoes and 'Divergente' in secoes:
-        organizados = []
-        secao_atual = None
-        for tipo, valor in itens:
-            secao = classificar_secao(tipo, valor)
-            if tipo == 'text' and secao in ('Rotacional', 'Divergente'):
-                # Título original será substituído pelo título padronizado.
-                if secao != secao_atual:
-                    organizados.append(('text', secao))
-                    secao_atual = secao
-                continue
-            if secao and secao != secao_atual:
-                organizados.append(('text', secao))
-                secao_atual = secao
-            organizados.append((tipo, valor))
-        itens = organizados
-
     def desenhar(itens, fallback=False):
-        # Ajusta altura à quantidade de linhas; nenhuma fórmula vira código no HTML.
-        n = min(len(itens), 240)
-        fig = plt.figure(figsize=(13, max(3.5, 1.0 + n * .65)), dpi=145,
-                         facecolor='#ffffff')
-        fig.text(.045, .985, titulo, fontsize=22, fontweight='bold', va='top', color='#17233a')
-        passo = .90 / max(n, 1)
-        for i, (tipo, conteudo) in enumerate(itens[:n]):
-            y = .94 - i * passo
-            if not conteudo:
+        from matplotlib.lines import Line2D
+        import re
+        linhas = []
+        numero = 0
+        for tipo, valor in itens:
+            valor = valor.strip()
+            if not valor:
                 continue
-            if tipo == 'math' and not fallback:
-                fig.text(.045, y, '$' + conteudo + '$', fontsize=16, va='top', color='#111827')
+            final = tipo == 'text' and bool(re.match(r'^(?:Passo\s+\d+\s*[-–—:]?\s*)?Resultado final\s*:?$', valor, re.I))
+            etapa = tipo == 'text' and (final or bool(re.match(r'^(?:Passo\b|\d+[.)]\s|Rotacional\s*:?$|Divergente\s*:?$|Função potencial\s*:?$)', valor, re.I)))
+            if etapa:
+                numero += 1
+                descricao = re.sub(r'^(?:Passo\s*(?:\d+)?\s*[-–—:]?\s*|\d+[.)]\s*)', '', valor, flags=re.I)
+                valor = f'Passo {numero} — ' + ('Resultado final' if final else descricao)
+                linhas.append(('final' if final else 'etapa', valor))
             else:
-                fig.text(.045, y, conteudo, fontsize=14, va='top', color='#111827',
-                         fontfamily='DejaVu Sans')
-        fig.savefig(destino, dpi=145, facecolor='white', bbox_inches='tight', pad_inches=.25)
-        plt.close(fig)
+                linhas.append((tipo, valor))
+        if linhas and not any(t in ('etapa', 'final') for t, v in linhas):
+            linhas.insert(0, ('etapa', 'Passo 1 — Desenvolvimento'))
+        altura = 1.15 + sum(.85 if t in ('etapa', 'final') else .65 for t, v in linhas)
+        fig = plt.figure(figsize=(13, max(3.5, altura)), dpi=145, facecolor='white')
+        altura = max(3.5, altura)
+        fig.text(.045, 1-.20/altura, titulo, fontsize=22, fontweight='bold', va='top', color='#17233a')
+        pos = .95
+        em_final = False
+        try:
+            for tipo, conteudo in linhas:
+                if tipo in ('etapa', 'final'):
+                    y = 1-pos/altura
+                    fig.add_artist(Line2D([.045,.955], [y,y], transform=fig.transFigure, color='#9ca3af', linewidth=1))
+                    fig.text(.045, y-.13/altura, conteudo, fontsize=17, fontweight='bold', va='top', color='#17233a')
+                    em_final = tipo == 'final'
+                    pos += .85
+                else:
+                    caixa = dict(boxstyle='square,pad=0.25', facecolor='white', edgecolor='#17233a') if em_final else None
+                    texto = '$' + conteudo + '$' if tipo == 'math' and not fallback else conteudo
+                    fig.text(.055, 1-pos/altura, texto, fontsize=16 if tipo == 'math' else 14, va='top', color='#111827', fontfamily='DejaVu Sans', bbox=caixa)
+                    pos += .65
+            fig.savefig(destino, dpi=145, facecolor='white', bbox_inches='tight', pad_inches=.25)
+        finally:
+            plt.close(fig)
     try:
         desenhar(itens)
     except Exception:
-        # Sem fórmula invisível: em caso de LaTeX inválido, PNG legível em Unicode.
-        try:
-            plt.close('all')
-        except Exception:
-            pass
         desenhar([('text', linha) for linha in escrita.splitlines()], fallback=True)
     return destino
 
@@ -4256,8 +4134,7 @@ def websocket_esp32(ws):
                                         "type": "input_text",
                                         "text": (
                                             f"Classifique SOMENTE o exercício {numero}. "
-                                            "Responda apenas VERDADEIRO_FALSO, OBJETIVA ou ESCRITA. "
-                                            "VERDADEIRO_FALSO: questão que pede julgar afirmações como V/F ou certo/errado, mesmo quando exige justificativas breves. Esta classificação tem prioridade sobre as demais. "
+                                            "Responda apenas OBJETIVA ou ESCRITA. "
                                             "OBJETIVA: múltipla escolha ou alternativas para marcar, inclusive questões teóricas A, B, C, D, E. "
                                             "ESCRITA: cálculo desenvolvido, matemática, física, discursiva, texto, demonstração ou resposta que precisa ser desenvolvida."
                                         )
@@ -4270,12 +4147,11 @@ def websocket_esp32(ws):
                             }]
                         )
                         tipo_exercicio = (resposta_tipo.output_text or "ESCRITA").strip().upper()
-                        eh_vf = tipo_exercicio == "VERDADEIRO_FALSO"
-                        eh_objetiva = "OBJETIVA" in tipo_exercicio and not eh_vf
-                        velocidade_audio = 1.0 if (eh_objetiva or eh_vf) else 0.6
+                        eh_objetiva = "OBJETIVA" in tipo_exercicio
+                        velocidade_audio = 1.0 if eh_objetiva else 0.6
                         adicionar_log_esp32(
                             "INFO",
-                            f"Exercício {numero}: {'VERDADEIRO_FALSO' if eh_vf else 'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
+                            f"Exercício {numero}: {'OBJETIVA' if eh_objetiva else 'ESCRITA'}; áudio {velocidade_audio}x."
                         )
 
                         conteudo_ia = [
@@ -4285,16 +4161,7 @@ def websocket_esp32(ws):
                                     }
                         ]
 
-                        if eh_vf:
-                            conteudo_ia[0]["text"] = (
-                                f"Leia a foto original e responda somente a questão {numero}, incluindo TODOS os seus subitens de verdadeiro ou falso, na ordem original. "
-                                "Para cada item, diga a letra e Verdadeiro ou Falso por extenso. "
-                                "Exemplo de formato: Letra A: verdadeiro. Letra B: falso. "
-                                "Se o enunciado pedir justificativas, acrescente uma justificativa breve logo após cada julgamento. "
-                                "Não repita o enunciado, não crie submenu por letra, não responda outras questões. "
-                                "Se algum item estiver ilegível, informe isso sem inventar resposta. Use texto natural para áudio, sem Markdown."
-                            )
-                        elif eh_objetiva:
+                        if eh_objetiva:
                             conteudo_ia[0]["text"] = (
                                 f"Observe novamente esta imagem original e responda SOMENTE o exercício {numero}. "
                                 "Leia tudo DIRETAMENTE DA FOTO e confira cuidadosamente antes de responder. "
@@ -4327,7 +4194,7 @@ def websocket_esp32(ws):
                                 "Não invente conteúdo que não esteja legível na foto e não troque o enunciado pelo material-base. "
                             )
 
-                        if eh_objetiva or eh_vf:
+                        if eh_objetiva:
                             resposta = openai_client.responses.create(
                                 model=OPENAI_MODEL,
                                 input=[{"role": "user", "content": conteudo_ia}]
@@ -4340,11 +4207,7 @@ def websocket_esp32(ws):
                         if not resolucao:
                             resolucao = "Não consegui gerar a resolução deste exercício pela imagem."
 
-                        if eh_vf:
-                            texto_final = (f"Exercício {numero}. " + resolucao + " "
-                                           "Agora você pode escolher novamente. "
-                                           + texto_menu_exercicios(opcoes_exercicios, incluir_gabarito=permite_gabarito, atual=indice_opcao))
-                        elif eh_objetiva:
+                        if eh_objetiva:
                             import re
                             # Extrai somente a letra e o texto da alternativa escolhida.
                             padrao = re.fullmatch(
