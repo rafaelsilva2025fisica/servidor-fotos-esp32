@@ -1170,7 +1170,7 @@ async function carregarResolucoes() {
         if (!r.ok) throw new Error("Falha ao consultar resoluções");
         if (fotoConsulta !== fotoResolucoesSelecionada || !resolucoesModal.classList.contains("aberta")) return;
         const grid = document.getElementById("resolucoesGrid");
-        const assinatura = JSON.stringify((dados.imagens || []).map(i => [i.nome, i.audio_estado, i.audio_url]));
+        const assinatura = JSON.stringify((dados.imagens || []).map(i => [i.nome, i.audio_estado, i.audio_url, i.audio_erro, i.audio_progresso]));
         if (assinatura !== assinaturaResolucoes) {
         assinaturaResolucoes = assinatura;
         if (!grid.children.length) grid.textContent = "";
@@ -1218,6 +1218,8 @@ async function carregarResolucoes() {
                 if (playerResolucaoAtivo && playerResolucaoAtivo !== player) playerResolucaoAtivo.pause();
                 playerResolucaoAtivo = player;
             };
+            const detalheAudio = document.createElement("div");
+            detalheAudio.style.cssText = "padding:8px;color:#f0b7a9;font-size:12px;overflow-wrap:anywhere;";
             let atual = item;
             card.atualizarAudio = function(novo) {
                 atual = novo;
@@ -1226,6 +1228,8 @@ async function carregarResolucoes() {
                 ouvir.textContent = rotulos[estado] || rotulos.indisponivel;
                 ouvir.disabled = !["pronto", "erro", "disponivel"].includes(estado);
                 ouvir.title = novo.audio_erro || "";
+                detalheAudio.textContent = novo.audio_erro || (estado === "gerando" && novo.audio_progresso ? "Parte " + novo.audio_progresso : "");
+                detalheAudio.style.display = detalheAudio.textContent ? "block" : "none";
                 if (estado === "pronto" && novo.audio_url) {
                     if (player.getAttribute("src") !== novo.audio_url) player.src = novo.audio_url;
                     player.style.display = "block";
@@ -1255,7 +1259,7 @@ async function carregarResolucoes() {
                     }
                 } catch(e) { assinaturaResolucoes = null; ouvir.disabled = false; ouvir.textContent = "🔄 TENTAR NOVAMENTE"; alert(e.message); }
             };
-            card.appendChild(ouvir); card.appendChild(player);
+            card.appendChild(ouvir); card.appendChild(detalheAudio); card.appendChild(player);
             grid.appendChild(card);
         });
         if (!dados.imagens || !dados.imagens.length) grid.textContent = "Ainda não há resoluções prontas para esta foto.";
@@ -3743,20 +3747,39 @@ def obter_resolucao_compartilhada(nome, numero, imagem_url, arquivo_base_id, ind
 
 
 def criar_audio_simulacao(escrita, numero, nome, imagem_nome=None):
-    # Gera somente para a galeria, sem WebSocket ou alteração da sessão ESP32.
+    # Geração exclusiva da galeria; não envia comandos à ESP32.
+    import tempfile
+    import wave
     texto = preparar_texto_para_tts(narrar_texto_aprovado(escrita))
     if not texto.strip():
         raise ValueError("Narração vazia")
+    partes = textwrap.wrap(texto, width=1800, break_long_words=True,
+                          break_on_hyphens=False, replace_whitespace=False)
     audio_id = uuid.uuid4().hex[:12]
     caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
-    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + "_sim.mp3")
+    filtro = filtro_volume_audio()
     try:
-        fala = openai_client.audio.speech.create(model=OPENAI_TTS_MODEL,
-            voice=OPENAI_TTS_VOICE, input=texto, response_format="mp3", speed=0.6)
-        fala.stream_to_file(caminho_mp3)
-        subprocess.run([FFMPEG, "-y", "-i", caminho_mp3, "-vn", "-af", filtro_volume_audio(), "-acodec",
-                        "pcm_s16le", "-ar", "8000", "-ac", "1", caminho_wav],
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=True)
+        with tempfile.TemporaryDirectory(dir=AUDIO_DIR) as pasta:
+            with wave.open(caminho_wav, "wb") as final:
+                final.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+                for indice, parte in enumerate(partes, 1):
+                    with _trava_audio_individual:
+                        _estados_audio_individual[imagem_nome] = {"estado": "gerando", "progresso": f"{indice}/{len(partes)}"}
+                    mp3 = os.path.join(pasta, "parte.mp3")
+                    wav = os.path.join(pasta, "parte.wav")
+                    try:
+                        fala = openai_client.audio.speech.create(model=OPENAI_TTS_MODEL,
+                            voice=OPENAI_TTS_VOICE, input=parte, response_format="mp3", speed=0.6)
+                        fala.stream_to_file(mp3)
+                    except Exception as erro:
+                        raise RuntimeError(f"API de áudio, parte {indice}/{len(partes)}: {type(erro).__name__} (HTTP {getattr(erro, 'status_code', None) or 'indisponível'})") from erro
+                    resultado = subprocess.run([FFMPEG, "-y", "-i", mp3, "-vn", "-af", filtro,
+                        "-acodec", "pcm_s16le", "-ar", "8000", "-ac", "1", wav],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+                    if resultado.returncode:
+                        raise RuntimeError(f"FFmpeg falhou na parte {indice}: " + resultado.stderr.decode(errors="replace")[-350:])
+                    with wave.open(wav, "rb") as trecho:
+                        final.writeframes(trecho.readframes(trecho.getnframes()))
         with lock:
             audios[audio_id] = {"arquivo": caminho_wav, "recebido": False,
                 "criado": time.time(), "menu": False, "tipo_galeria": "resolucao",
@@ -3767,9 +3790,6 @@ def criar_audio_simulacao(escrita, numero, nome, imagem_nome=None):
         if os.path.exists(caminho_wav):
             os.remove(caminho_wav)
         raise
-    finally:
-        if os.path.exists(caminho_mp3):
-            os.remove(caminho_mp3)
     return audio_id
 
 
@@ -3830,9 +3850,9 @@ def _processar_audio_individual(imagem_nome, escrita, numero, foto):
             with _trava_audio_individual:
                 _estados_audio_individual[imagem_nome] = {"estado": "pronto"}
         except Exception as erro:
-            print("Áudio individual:", repr(erro), flush=True)
+            app.logger.exception("Áudio individual: falha na geração")
             with _trava_audio_individual:
-                _estados_audio_individual[imagem_nome] = {"estado": "erro", "erro": "Falha na geração. Tente novamente."}
+                _estados_audio_individual[imagem_nome] = {"estado": "erro", "erro": str(erro)[:500] if isinstance(erro, RuntimeError) else f"Falha: {type(erro).__name__}. Consulte os logs do Render."}
 
 def _solicitar_audio_individual(imagem_nome):
     with _trava_audio_individual:
@@ -3884,6 +3904,7 @@ def api_resolucoes():
                                  "audio_url": mapa_audio.get(n),
                                  "audio_estado": "pronto" if n in mapa_audio else (estados.get(n, {}).get("estado") if estados.get(n, {}).get("estado") in ("aguardando", "gerando", "erro") else "disponivel" if n in disponiveis else "indisponivel"),
                                  "audio_erro": estados.get(n, {}).get("erro"),
+                                 "audio_progresso": estados.get(n, {}).get("progresso"),
                                  "audio_disponivel": n in disponiveis or n in mapa_audio} for n in arquivos],
                     "jobs": jobs})
 
