@@ -3375,7 +3375,7 @@ def analisar_foto_nova_com_ia(caminho, nome, manual=False):
         # Recurso EXTRA: só inicia depois do fluxo principal preparar o menu.
         # Não altera status_ia, esp_ws, áudios nem variáveis da sessão.
         if GERAR_RESOLUCOES_AUTOMATICAS:
-            iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios)
+            iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios, manual=manual)
 
 
     except Exception as erro:
@@ -3595,17 +3595,46 @@ def obter_resolucao_compartilhada(nome, numero, imagem_url, arquivo_base_id, ind
         return registro['escrita']
 
 
-def iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios):
+def criar_audio_simulacao(escrita, numero, nome):
+    # Gera somente para a galeria, sem WebSocket ou alteração da sessão ESP32.
+    texto = preparar_texto_para_tts(narrar_texto_aprovado(escrita))
+    if not texto.strip():
+        raise ValueError("Narração vazia")
+    audio_id = uuid.uuid4().hex[:12]
+    caminho_wav = os.path.join(AUDIO_DIR, audio_id + ".wav")
+    caminho_mp3 = os.path.join(AUDIO_DIR, audio_id + "_sim.mp3")
+    try:
+        fala = openai_client.audio.speech.create(model=OPENAI_TTS_MODEL,
+            voice=OPENAI_TTS_VOICE, input=texto, response_format="mp3", speed=0.6)
+        fala.stream_to_file(caminho_mp3)
+        subprocess.run([FFMPEG, "-y", "-i", caminho_mp3, "-vn", "-acodec",
+                        "pcm_s16le", "-ar", "8000", "-ac", "1", caminho_wav],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=True)
+        with lock:
+            audios[audio_id] = {"arquivo": caminho_wav, "recebido": False,
+                "criado": time.time(), "menu": False, "tipo_galeria": "resolucao",
+                "titulo_galeria": f"Simulação - Exercício {numero} - {nome}",
+                "tentativas_recuperacao": 0}
+    except Exception:
+        if os.path.exists(caminho_wav):
+            os.remove(caminho_wav)
+        raise
+    finally:
+        if os.path.exists(caminho_mp3):
+            os.remove(caminho_mp3)
+
+
+def iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios, manual=False):
     if openai_client is None or not exercicios:
         return
     job_id = uuid.uuid4().hex[:12]
     with resolucoes_lock:
         resolucoes_jobs[job_id] = {"foto": nome, "estado": "aguardando", "total": len(exercicios), "concluidos": 0}
     threading.Thread(target=_gerar_resolucoes_extras,
-                     args=(job_id, caminho, nome, [dict(e) for e in exercicios]), daemon=True).start()
+                     args=(job_id, caminho, nome, [dict(e) for e in exercicios], manual), daemon=True).start()
 
 
-def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
+def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios, manual=False):
     # Não mexer nas variáveis globais da sessão principal.
     with resolucoes_semaforo:
         with resolucoes_lock:
@@ -3617,8 +3646,10 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                 numero = str(exercicio.get("numero", i))
                 enunciado = str(exercicio.get("enunciado", ""))
                 try:
-                    obter_resolucao_compartilhada(nome, numero, "data:image/jpeg;base64," + foto_b64,
+                    escrita = obter_resolucao_compartilhada(nome, numero, "data:image/jpeg;base64," + foto_b64,
                                                   material_base_file_id, i)
+                    if manual:
+                        criar_audio_simulacao(escrita, numero, nome)
                 except Exception as erro:
                     print(f'GALERIA RESOLUCOES: erro no exercício {numero}: {erro!r}', flush=True)
                 finally:
