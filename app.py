@@ -1060,6 +1060,9 @@ const apagarTodosAudios = document.getElementById("apagarTodosAudios");
 // Galeria adicional: isolada das fotos e do fluxo de áudio.
 const resolucoesModal = document.getElementById("resolucoesModal");
 let atualizadorResolucoes = null;
+let playerResolucaoAtivo = null;
+let assinaturaResolucoes = null;
+let consultaResolucoesAtiva = false;
 let fotoResolucoesSelecionada = null;
 let origemGaleriaFotos = false;
 let scrollGaleriaFotos = 0;
@@ -1080,13 +1083,23 @@ visualizarResolucaoModal.onclick = function(e) {
     if (e.target === visualizarResolucaoModal) voltarResolucoes();
 };
 async function carregarResolucoes() {
+    if (consultaResolucoesAtiva) return;
+    consultaResolucoesAtiva = true;
+    const fotoConsulta = fotoResolucoesSelecionada;
     try {
         const filtro = fotoResolucoesSelecionada ? "&foto=" + encodeURIComponent(fotoResolucoesSelecionada) : "";
         const r = await fetch("/api/resolucoes?t=" + Date.now() + filtro, {cache:"no-store"});
         const dados = await r.json();
         if (!r.ok) throw new Error("Falha ao consultar resoluções");
+        if (fotoConsulta !== fotoResolucoesSelecionada || !resolucoesModal.classList.contains("aberta")) return;
         const grid = document.getElementById("resolucoesGrid");
-        grid.replaceChildren();
+        const assinatura = JSON.stringify((dados.imagens || []).map(i => [i.nome, i.audio_estado, i.audio_url]));
+        if (assinatura !== assinaturaResolucoes) {
+        assinaturaResolucoes = assinatura;
+        if (!grid.children.length) grid.textContent = "";
+        const cardsAnteriores = new Map(Array.from(grid.children).filter(c => c.dataset.nome).map(c => [c.dataset.nome, c]));
+        const nomesAtuais = new Set((dados.imagens || []).map(i => i.nome));
+        for (const c of Array.from(grid.childNodes)) if (!c.dataset || !nomesAtuais.has(c.dataset.nome)) c.remove();
         // Exibe as resoluções na ordem numérica crescente: 1, 2, 3...
         // Mantém a ordem recebida para arquivos sem número identificável.
         const imagensOrdenadas = [...(dados.imagens || [])].sort((a, b) => {
@@ -1097,7 +1110,9 @@ async function carregarResolucoes() {
             return numero(a) - numero(b);
         });
         imagensOrdenadas.forEach(item => {
-            const card = document.createElement("div"); card.className = "foto-card";
+            const anterior = cardsAnteriores.get(item.nome);
+            if (anterior) { anterior.atualizarAudio(item); grid.appendChild(anterior); return; }
+            const card = document.createElement("div"); card.className = "foto-card"; card.dataset.nome = item.nome;
             const a = document.createElement("button"); a.type = "button";
             a.style.cssText = "display:block;width:100%;padding:0;background:transparent;border-radius:0;";
             a.setAttribute("aria-label", "Ampliar resolução " + item.nome);
@@ -1115,18 +1130,57 @@ async function carregarResolucoes() {
             baixar.setAttribute("aria-label", "Baixar " + (indice ? "resolução " + Number(indice[1]) : item.nome));
             baixar.style.cssText = "display:block;margin:8px;padding:12px;text-align:center;background:#238636;color:white;border-radius:8px;font-weight:bold;text-decoration:none;touch-action:manipulation;";
             card.appendChild(baixar);
+            const ouvir = document.createElement("button");
+            ouvir.type = "button";
+            ouvir.style.cssText = "display:block;margin:8px;width:calc(100% - 16px);padding:12px;";
+            const player = document.createElement("audio");
+            player.controls = true;
+            player.style.cssText = "display:none;width:100%;";
+            let atual = item;
+            card.atualizarAudio = function(novo) {
+                atual = novo;
+                const estado = novo.audio_estado;
+                const rotulos = {aguardando:"⏳ AGUARDANDO ÁUDIO", gerando:"⏳ GERANDO ÁUDIO...", pronto:"🔊 ESCUTAR ÁUDIO", erro:"🔄 TENTAR NOVAMENTE", disponivel:"🎵 GERAR ÁUDIO", indisponivel:"ÁUDIO INDISPONÍVEL"};
+                ouvir.textContent = rotulos[estado] || rotulos.indisponivel;
+                ouvir.disabled = !["pronto", "erro", "disponivel"].includes(estado);
+                ouvir.title = novo.audio_erro || "";
+                ouvir.style.background = estado === "pronto" ? "#2563eb" : estado === "erro" ? "#b91c1c" : estado === "gerando" ? "#b45309" : "#64748b";
+            };
+            card.atualizarAudio(item);
+            ouvir.onclick = async function() {
+                try {
+                    if (atual.audio_estado === "pronto") {
+                        if (playerResolucaoAtivo && playerResolucaoAtivo !== player) playerResolucaoAtivo.pause();
+                        if (player.getAttribute("src") !== atual.audio_url) player.src = atual.audio_url;
+                        player.style.display = "block";
+                        playerResolucaoAtivo = player;
+                        await player.play();
+                    } else {
+                        ouvir.disabled = true;
+                        ouvir.textContent = "⏳ AGUARDANDO ÁUDIO";
+                        const resposta = await fetch("/api/resolucoes/audio/" + encodeURIComponent(item.nome), {method:"POST"});
+                        const dadosAudio = await resposta.json();
+                        if (!resposta.ok) throw new Error(dadosAudio.erro || "Falha ao solicitar áudio");
+                        await carregarResolucoes();
+                    }
+                } catch(e) { ouvir.disabled = false; ouvir.textContent = "🔄 TENTAR NOVAMENTE"; alert(e.message); }
+            };
+            card.appendChild(ouvir); card.appendChild(player);
             grid.appendChild(card);
         });
         if (!dados.imagens || !dados.imagens.length) grid.textContent = "Ainda não há resoluções prontas para esta foto.";
+        }
         const ativos = (dados.jobs || []).filter(j => j.estado !== "concluido");
         document.getElementById("resolucoesEstado").textContent = ativos.length
             ? "⏳ Gerando imagens: " + ativos.map(j => j.concluidos + "/" + j.total).join(", ")
             : "Resoluções disponíveis: " + (dados.imagens || []).length;
     } catch(e) { document.getElementById("resolucoesEstado").textContent = "Erro: " + e.message; }
+    finally { consultaResolucoesAtiva = false; }
 }
 function abrirBibliotecaResolucoes(foto = null, veioDaGaleria = false) {
     origemGaleriaFotos = veioDaGaleria;
     document.getElementById("voltarGaleriaFotos").style.display = veioDaGaleria ? "inline-block" : "none";
+    assinaturaResolucoes = null;
     fotoResolucoesSelecionada = foto;
     resolucoesModal.querySelector("h2").textContent = foto
         ? "📐 Resoluções da foto: " + foto
@@ -1134,12 +1188,14 @@ function abrirBibliotecaResolucoes(foto = null, veioDaGaleria = false) {
     resolucoesModal.classList.add("aberta");
     clearInterval(atualizadorResolucoes);
     carregarResolucoes();
-    atualizadorResolucoes = setInterval(carregarResolucoes, 4000);
+    atualizadorResolucoes = setInterval(carregarResolucoes, 2000);
 }
 document.getElementById("abrirResolucoes").onclick = function() {
     abrirBibliotecaResolucoes();
 };
 function fecharBibliotecaResolucoes() {
+    if (playerResolucaoAtivo) playerResolucaoAtivo.pause();
+    playerResolucaoAtivo = null;
     voltarResolucoes();
     resolucoesModal.classList.remove("aberta"); clearInterval(atualizadorResolucoes);
     if (origemGaleriaFotos) {
@@ -3595,7 +3651,7 @@ def obter_resolucao_compartilhada(nome, numero, imagem_url, arquivo_base_id, ind
         return registro['escrita']
 
 
-def criar_audio_simulacao(escrita, numero, nome):
+def criar_audio_simulacao(escrita, numero, nome, imagem_nome=None):
     # Gera somente para a galeria, sem WebSocket ou alteração da sessão ESP32.
     texto = preparar_texto_para_tts(narrar_texto_aprovado(escrita))
     if not texto.strip():
@@ -3613,7 +3669,8 @@ def criar_audio_simulacao(escrita, numero, nome):
         with lock:
             audios[audio_id] = {"arquivo": caminho_wav, "recebido": False,
                 "criado": time.time(), "menu": False, "tipo_galeria": "resolucao",
-                "titulo_galeria": f"Simulação - Exercício {numero} - {nome}",
+                "titulo_galeria": f"Exercício {numero} - {nome}",
+                "imagem_resolucao": imagem_nome,
                 "tentativas_recuperacao": 0}
     except Exception:
         if os.path.exists(caminho_wav):
@@ -3622,6 +3679,7 @@ def criar_audio_simulacao(escrita, numero, nome):
     finally:
         if os.path.exists(caminho_mp3):
             os.remove(caminho_mp3)
+    return audio_id
 
 
 def iniciar_resolucoes_em_segundo_plano(caminho, nome, exercicios, manual=False):
@@ -3649,7 +3707,8 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios, manual=False):
                     escrita = obter_resolucao_compartilhada(nome, numero, "data:image/jpeg;base64," + foto_b64,
                                                   material_base_file_id, i)
                     if manual:
-                        criar_audio_simulacao(escrita, numero, nome)
+                        registro = _resolucoes_compartilhadas[(nome, numero.strip().upper())]
+                        _solicitar_audio_individual(os.path.basename(registro['imagem']))
                 except Exception as erro:
                     print(f'GALERIA RESOLUCOES: erro no exercício {numero}: {erro!r}', flush=True)
                 finally:
@@ -3665,6 +3724,54 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios, manual=False):
                     resolucoes_jobs.pop(next(iter(resolucoes_jobs)))
 
 
+_trava_audio_individual = threading.Lock()
+_estados_audio_individual = {}
+_fila_audio_individual = threading.Semaphore(1)
+
+def _audio_existente(imagem_nome):
+    with lock:
+        return next((aid for aid, info in audios.items()
+                     if info.get("imagem_resolucao") == imagem_nome and os.path.isfile(info.get("arquivo") or "")), None)
+
+def _processar_audio_individual(imagem_nome, escrita, numero, foto):
+    with _fila_audio_individual:
+        with _trava_audio_individual:
+            _estados_audio_individual[imagem_nome] = {"estado": "gerando"}
+        try:
+            aid = _audio_existente(imagem_nome) or criar_audio_simulacao(escrita, numero, foto, imagem_nome)
+            with _trava_audio_individual:
+                _estados_audio_individual[imagem_nome] = {"estado": "pronto"}
+        except Exception as erro:
+            print("Áudio individual:", repr(erro), flush=True)
+            with _trava_audio_individual:
+                _estados_audio_individual[imagem_nome] = {"estado": "erro", "erro": "Falha na geração. Tente novamente."}
+
+def _solicitar_audio_individual(imagem_nome):
+    with _trava_audio_individual:
+        aid = _audio_existente(imagem_nome)
+        if aid:
+            return {"estado": "pronto", "url": f"/api/audios/{aid}/arquivo"}
+        estado = _estados_audio_individual.get(imagem_nome, {}).get("estado")
+        if estado in ("aguardando", "gerando"):
+            return {"estado": estado}
+        with resolucoes_lock:
+            registros = list(_resolucoes_compartilhadas.items())
+        for (foto, numero), registro in registros:
+            if os.path.basename(registro.get("imagem") or "") == imagem_nome:
+                _estados_audio_individual[imagem_nome] = {"estado": "aguardando"}
+                threading.Thread(target=_processar_audio_individual, args=(imagem_nome, registro["escrita"], numero, foto), daemon=True).start()
+                return {"estado": "aguardando"}
+        raise LookupError("Resolução original indisponível. Gere novamente a resolução.")
+
+@app.route("/api/resolucoes/audio/<nome>", methods=["POST"])
+def audio_individual_resolucao(nome):
+    if os.path.basename(nome) != nome or not nome.lower().endswith((".png", ".svg")):
+        return jsonify({"erro": "Nome inválido"}), 400
+    try:
+        return jsonify(_solicitar_audio_individual(nome))
+    except LookupError as erro:
+        return jsonify({"erro": str(erro)}), 404
+
 @app.route("/api/resolucoes", methods=["GET"])
 def api_resolucoes():
     foto = request.args.get("foto", "").strip()
@@ -3678,8 +3785,18 @@ def api_resolucoes():
     arquivos.sort(key=lambda n: os.path.getmtime(os.path.join(PASTA_RESOLUCOES, n)), reverse=True)
     with resolucoes_lock:
         jobs = [dict(j) for j in resolucoes_jobs.values() if not foto or j.get("foto") == foto][-10:]
+        disponiveis = {os.path.basename(r.get("imagem") or "") for r in _resolucoes_compartilhadas.values()}
+    with lock:
+        mapa_audio = {info.get("imagem_resolucao"): f"/api/audios/{aid}/arquivo"
+                      for aid, info in audios.items() if os.path.isfile(info.get("arquivo") or "")}
+    with _trava_audio_individual:
+        estados = dict(_estados_audio_individual)
     return jsonify({"foto": foto or None,
-                    "imagens": [{"nome": n, "url": "/resolucoes/" + n} for n in arquivos],
+                    "imagens": [{"nome": n, "url": "/resolucoes/" + n,
+                                 "audio_url": mapa_audio.get(n),
+                                 "audio_estado": "pronto" if n in mapa_audio else (estados.get(n, {}).get("estado") if estados.get(n, {}).get("estado") in ("aguardando", "gerando", "erro") else "disponivel" if n in disponiveis else "indisponivel"),
+                                 "audio_erro": estados.get(n, {}).get("erro"),
+                                 "audio_disponivel": n in disponiveis or n in mapa_audio} for n in arquivos],
                     "jobs": jobs})
 
 
