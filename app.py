@@ -3072,65 +3072,9 @@ os.makedirs(PASTA_TREINAMENTO, exist_ok=True)
 ARQUIVO_EXEMPLOS = os.path.join(PASTA_TREINAMENTO, "exemplos_aprovados.json")
 exemplos_lock = threading.RLock()
 
-PADRAO_RESOLUCAO = (
-    "Resolva somente o exercício solicitado, em português brasileiro, com cálculos corretos. "
-    "FORMATO DA RESOLUÇÃO ESCRITA: texto Unicode legível, sem LaTeX ou Markdown matemático. "
-    "Use ², ³, ∂, ∇, ×, · e −. Escreva derivadas como ∂(expressão)/∂x. "
-    "Comece diretamente pela substituição nas operações solicitadas, sem repetir fórmula geral abstrata. "
-    "Quando houver rotacional e divergente, escreva OBRIGATORIAMENTE os títulos Rotacional e Divergente, cada um em sua própria linha antes dos respectivos cálculos. "
-    "REGRA DE CONCISÃO: em derivadas parciais simples de polinômios, faça a derivação mentalmente "
-    "e passe DIRETAMENTE da expressão de derivadas para a linha de subtração ou soma dos resultados. "
-    "No rotacional, para cada componente Rₓ, Rᵧ e R_z, use SOMENTE duas linhas: "
-    "primeiro a expressão com as duas derivadas parciais e depois a igualdade "
-    "com os resultados derivados e a simplificação final. "
-    "Exemplo: Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z; na linha seguinte Rₓ = 2y − 2y = 0. "
-    "NÃO escreva separadamente ∂(2xz+y²)/∂y = 0+2y nem ∂(x²+2yz)/∂z = 0+2y "
-    "quando as derivadas forem imediatas. "
-    "No divergente, quando as componentes Fₓ, Fᵧ e F_z já estiverem identificadas, "
-    "não repita os polinômios dentro das derivadas: escreva diretamente "
-    "∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, "
-    "∂F_z/∂z = parcelas = resultado, cada um em sua linha. "
-    "Mostre obrigatoriamente as parcelas intermediárias, inclusive termos nulos quando existirem, "
-    "como ∂Fₓ/∂x = 2y + 0 = 2y; não abrevie diretamente para 2y. "
-    "Não coloque parênteses ao redor de Fₓ, Fᵧ ou F_z no numerador da derivada: "
-    "use ∂Fₓ/∂x, nunca ∂(Fₓ)/∂x. "
-    "Finalize com ∇·F = resultado final diretamente simplificado e ordenado "
-    "(ex.: ∇·F = 2x + 2y + 2z), sem escrever antes a soma em outra ordem. "
-    "Atenção: Fₓ sozinho NÃO é a derivada e Rₓ designa rotacional, nunca divergente. "
-    "Para exercícios de função potencial escalar, escreva OBRIGATORIAMENTE os títulos em linhas próprias e nesta ordem: Passo Integração em x; Passo Integração em y; Passo Verificação em z; Resultado final. " "Use o título geral Função potencial somente se não substituir esses quatro títulos. Adapte a variável da etapa se a integração começar por outra componente. "
-    "Nunca pule a operação de integração: após ∂φ/∂x = P, mostre φ = ∫(P) dx e só então a expressão integrada. "
-    "Quando determinar g(y,z) a partir de ∂g/∂y = Q, mostre g(y,z) = ∫(Q) dy antes do resultado. "
-    "Se houver integração em z, mostre a integral correspondente. Para integrais indefinidas, use ∫(expressão) dx, dy ou dz, sem INT{}{}. "
-    "Use φ ou ϕ de maneira consistente, respeitando a notação do enunciado; não omita constantes ou funções de integração. "
-    "EXCEÇÃO IMPORTANTE: para derivadas difíceis, regras do produto, cadeia, quociente, "
-    "derivadas implícitas, integrais ou manipulações não triviais, mantenha as etapas "
-    "intermediárias realmente necessárias para verificar a conta. "
-    "Não omita sinais, limites, substituições essenciais nem resultados. "
-    "Não use matrizes para rotacional se o cálculo direto for mais simples. "
-    "Para integrais definidas, use INT{inferior}{superior} conforme o formato do servidor. "
-    "Para integral de linha de campo conservativo, não refaça os itens anteriores: Passo Aplicação do teorema, Passo Substituição dos pontos e Resultado final uma vez no encerramento. Calcule os potenciais dos extremos separadamente e finalize diretamente com ∫_C F·dr = valor. "
-    "EM TODOS os tipos de exercícios, coloque Resultado final em linha própria imediatamente antes da última expressão conclusiva; uma única vez e nunca no meio da resolução. "
-    "Nos títulos das etapas, nunca use números, enumeração, hífen ou travessão: escreva exatamente Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final (uma vez só no encerramento), adaptando as variáveis ao exercício. Retorne SOMENTE a resolução escrita."
-)
+PADRAO_RESOLUCAO = 'Resolva somente o exercício solicitado, em português brasileiro, no formato de uma prova discursiva completa. Não economize linhas nem pule operações intermediárias, mesmo simples. Mostre a fórmula geral, substituição dos dados, aplicação das regras, operações intermediárias, cancelamentos e simplificação final, em linhas próprias. Em derivadas, mostre a expressão a derivar, regra aplicada, parcelas inclusive nulas e resultado; em integrais, mostre a integral, separação de termos, constantes extraídas, primitivas, substituição de limites quando houver e simplificação. Em equações, mostre isolamento e substituições; em Física, mantenha unidades e conversões pertinentes. Para função potencial, mostre identificação das componentes, integração em x com função arbitrária g, derivação em y, igualdade com a componente, isolamento de ∂g/∂y, integração completa, substituição de g na função potencial, derivação em z, igualdade com a terceira componente, cancelamentos, integração de h′ e conclusão sobre conservatividade. Adapte ao exercício; não invente dados. Não refaça outros subitens desnecessariamente, mas justifique os resultados usados. Para rotacional e divergente mostre fórmulas e derivadas individuais, com títulos próprios. Use texto Unicode, sem Markdown ou LaTeX, com uma operação por linha. Integrais definidas no formato INT{inferior}{superior}; indefinidas com ∫. Use títulos em linhas próprias começando por Passo, sem numeração (o renderizador numera). Explicações curtas, mas cálculos completos. Termine com Resultado final em linha própria e a expressão conclusiva. Exemplos antigos não autorizam omitir etapas. Retorne somente a resolução.'
 
-EXEMPLO_APROVADO = (
-    "EXEMPLO DE ESTILO COMPACTO, NÃO COPIE RESULTADOS PARA OUTROS EXERCÍCIOS.\n"
-    "Para F=(2xy+z², x²+2yz, 2xz+y²):\n"
-    "Rotacional\n"
-    "Rₓ = ∂(2xz+y²)/∂y − ∂(x²+2yz)/∂z\n"
-    "Rₓ = 2y − 2y = 0\n\n"
-    "Rᵧ = ∂(2xy+z²)/∂z − ∂(2xz+y²)/∂x\n"
-    "Rᵧ = 2z − 2z = 0\n\n"
-    "R_z = ∂(x²+2yz)/∂x − ∂(2xy+z²)/∂y\n"
-    "R_z = 2x − 2x = 0\n"
-    "∇×F = (0,0,0)\n\n"
-    "Divergente\n"
-    "∂Fₓ/∂x = 2y + 0 = 2y\n"
-    "∂Fᵧ/∂y = 0 + 2z = 2z\n"
-    "∂F_z/∂z = 2x + 0 = 2x\n"
-    "∇·F = 2x + 2y + 2z\n"
-    "Derivadas triviais são calculadas diretamente; mantenha passos para operações difíceis."
-)
+EXEMPLO_APROVADO = 'EXEMPLO DE ESTILO DETALHADO (não copie valores):\nPasso Integração em x\n∂φ/∂x = 2xy+z²\nφ = ∫(2xy+z²) dx\nφ = 2y∫x dx + z²∫dx\nφ = 2y(x²/2)+z²x+g(y,z)\nφ = x²y+xz²+g(y,z)\nPasso Integração em y\n∂φ/∂y = ∂(x²y+xz²+g(y,z))/∂y\n∂φ/∂y = x²+0+∂g/∂y\nx²+∂g/∂y = x²+2yz\n∂g/∂y = x²+2yz−x²\n∂g/∂y = 2yz\ng(y,z) = ∫(2yz) dy\ng(y,z) = 2z∫y dy\ng(y,z) = 2z(y²/2)+h(z)\ng(y,z) = y²z+h(z)\nφ = x²y+xz²+y²z+h(z)\nPasso Verificação em z\n∂φ/∂z = ∂(x²y+xz²+y²z+h(z))/∂z\n∂φ/∂z = 0+2xz+y²+h′(z)\n2xz+y²+h′(z) = 2xz+y²\nh′(z) = 2xz+y²−2xz−y²\nh′(z) = 0\nh(z) = ∫0 dz\nh(z) = C\nComo ∇φ = F, o campo é conservativo.\nResultado final\nφ = x²y+xz²+y²z+C'
 
 def carregar_exemplos_aprovados():
     with exemplos_lock:
@@ -3202,13 +3146,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
         input=[{'role':'user','content':[
             {'type':'input_text','text':(
                 'Revise esta resolução comparando-a à FOTO ORIGINAL. ' + REGRA_COMPLETUDE_CURVAS + ' Corrija erros matemáticos, '
-                'sinais, limites e resultados. Elimine fórmulas preparatórias redundantes, '
-                'repetições do lado esquerdo e passos sem operação matemática nova. '
-                'Não omita passos indispensáveis para verificar a conta, mas corte passos triviais. '
-                'Inclua os títulos Rotacional e Divergente quando ambas as operações forem solicitadas. Para função potencial, separe OBRIGATORIAMENTE em Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final (adapte variáveis ao caso). Mostre cada integral indefinida explicitamente (por exemplo φ = ∫(2xy+z²) dx) ANTES do resultado integrado; mostre também g(y,z) = ∫(2yz) dy quando aplicável. Não pule integrais. '
-                'No rotacional, cada componente simples deve ter apenas a linha com as duas derivadas '
-                'e a linha seguinte com os resultados e a subtração, sem derivadas individuais. '
-                'No divergente, use ∂Fₓ/∂x = parcelas = resultado (ex.: 2y + 0 = 2y), ∂Fᵧ/∂y e ∂F_z/∂z analogamente; mostre os termos nulos. Não use parênteses em torno de Fₓ, Fᵧ ou F_z: nunca ∂(Fₓ)/∂x. Resultado ∇·F diretamente ordenado, sem repetir soma desordenada. Não confunda com Rₓ do rotacional. '
+                'sinais, limites e resultados. Complete toda operação intermediária ausente, inclusive as simples. Não resuma nem elimine cálculos. '
                 'Não use LaTeX ou comandos como frac, partial, nabla; somente texto Unicode legível. '
                 'Preserve o método mais simples e a notação legível. '
                 'Se não puder conferir a matemática, responda somente REVISAO_INSEGURA. '
@@ -3535,6 +3473,7 @@ def _latex_para_imagem(escrita, titulo, destino):
     import re
     from matplotlib.font_manager import FontProperties
 
+    originais = [v.strip() for v in escrita.splitlines() if v.strip()]
     # Conversão dedicada: NÃO pede nova solução, apenas transcrição visual.
     pedido = (
         'Converta a resolução a seguir em linhas para renderização matemática. '
@@ -3548,25 +3487,28 @@ def _latex_para_imagem(escrita, titulo, destino):
         'delimitadores $ ou \\[. '
         'Mathtext do matplotlib será usado, portanto produza comandos simples. '
         'Não agrupe operações de linhas distintas. '
-        'Organize TODOS os exercícios em etapas lógicas com títulos TXT: Passo 1 — descrição, Passo 2 — descrição, etc. Use TXT: Resultado final antes da resposta final. Não invente cálculos nem omita linhas. Preserve os títulos específicos de cada assunto, acrescentando numeração apenas na apresentação visual. Preserve como TXT os quatro títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, quando presentes; não transforme títulos em MAT. Preserve TODAS as linhas de integração, incluindo integrais indefinidas ∫(expressão) dx, dy ou dz, usando o comando int no LaTeX. Preserve o título Função potencial como TXT. '
+        'Preserve os títulos existentes como TXT, sem criar outros. Não invente cálculos nem omita linhas. Preserve os títulos específicos de cada assunto, acrescentando numeração apenas na apresentação visual. Preserve como TXT os quatro títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, quando presentes; não transforme títulos em MAT. Preserve TODAS as linhas de integração, incluindo integrais indefinidas ∫(expressão) dx, dy ou dz, usando o comando int no LaTeX. Preserve o título Função potencial como TXT. '
         'Em derivadas de componentes, represente F_x, F_y, F_z diretamente no numerador: '
         r'use \frac{\partial F_x}{\partial x}, NUNCA \frac{\partial(F_x)}{\partial x}; '
         'não adicione parênteses que não existam no texto original. '
         'Para INT{a}{b}, escreva \\int_{a}^{b}. '
-        'RESOLUÇÃO ORIGINAL:\n' + escrita[:16000]
+        'Cada linha original numerada deve gerar exatamente uma linha com o mesmo número, no formato 1 MAT: ... ou 1 TXT: ... . Não acrescente títulos nem combine linhas. Preserve títulos e texto existentes. RESOLUÇÃO ORIGINAL:\n' + '\n'.join(f'{i} {v}' for i,v in enumerate(originais,1))
     )
-    resposta = openai_client.responses.create(model=OPENAI_MODEL,
-        input=[{'role':'user','content':[{'type':'input_text','text':pedido}]}])
-    bruto = (resposta.output_text or '').strip()
-    itens = []
-    for linha in bruto.splitlines():
-        linha = linha.strip()
-        if linha.startswith('MAT:'):
-            itens.append(('math', linha[4:].strip().strip('$')))
-        elif linha.startswith('TXT:'):
-            itens.append(('text', linha[4:].strip()))
-    if not itens:
-        raise ValueError('Conversão matemática sem linhas válidas.')
+    convertidas = {}
+    try:
+        resposta = openai_client.responses.create(model=OPENAI_MODEL,
+            input=[{'role':'user','content':[{'type':'input_text','text':pedido}]}])
+        for linha in (resposta.output_text or '').splitlines():
+            m = re.fullmatch(r"\s*(\d+)\s+(MAT|TXT):\s*(.+)", linha)
+            if m:
+                i = int(m.group(1))
+                if i in convertidas:
+                    raise ValueError('Linha duplicada na conversão')
+                convertidas[i] = ('math' if m.group(2)=='MAT' else 'text', m.group(3).strip().strip('$'))
+    except Exception as erro:
+        print('Conversão visual: usando texto original:', repr(erro), flush=True)
+        convertidas = {}
+    itens = [convertidas.get(i, ('text', v)) for i,v in enumerate(originais,1)]
     def desenhar(itens, fallback=False):
         from matplotlib.lines import Line2D
         import re
@@ -3651,17 +3593,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                             {"type": "input_text", "text": (
                                 "Resolva APENAS o exercício " + numero + " da foto, passo a passo, em português. "
                                 + REGRA_COMPLETUDE_CURVAS + " "
-                                "REGRA DE ESCOPO: não repita resoluções de letras anteriores (a, b etc.), mesmo que estejam na mesma questão. "
-                                "Use resultados anteriores somente como dados, sem refazer rotacional, divergente ou encontrar novamente a função potencial. "
-                                "Se a letra pedir integral de linha de campo conservativo com função potencial conhecida, "
-                                "mostre apenas: Passo Aplicação do teorema; ∫_C F·dr = φ(B) − φ(A); "
-                                "Passo Substituição dos pontos; cálculo separado de φ(B) e φ(A); "
-                                "Resultado final; ∫_C F·dr = valor. "
-                                "O título Resultado final aparece uma única vez e a última linha contém só a expressão e o valor simplificado, "
-                                "sem repetir φ(B) − φ(A) ou reordenar contas. "
-                                "Obrigatório em qualquer exercício: título Resultado final uma vez, em linha própria antes da última expressão. "
-                                "Confira a FOTO ORIGINAL e use o enunciado identificado apenas como apoio: " + enunciado + ". "
-                                "Coloque os títulos Rotacional e Divergente em linhas separadas antes de cada seção, SOMENTE quando solicitadas no exercício atual. Para exercícios que PEDEM CALCULAR função potencial, divida a resolução com os títulos Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final, adaptando variáveis conforme necessário. Ao integrar, escreva explicitamente φ = ∫(expressão) dx antes do resultado integrado; faça o mesmo para g(y,z) = ∫(expressão) dy e integrais seguintes quando necessárias. Nunca pule a integral que gera uma função. Se o rotacional envolver derivadas parciais simples, escreva cada componente em duas linhas: a expressão das duas derivadas e, logo abaixo, a subtração dos resultados (ex.: Rₓ = 2y − 2y = 0). Não crie linhas para derivadas individuais triviais. Não numere títulos nem use traços entre Passo e a descrição; escreva Passo Integração em x, Passo Integração em y, Passo Verificação em z e Resultado final uma única vez no encerramento quando aplicável. Para o divergente, se Fₓ, Fᵧ e F_z já estiverem identificadas, escreva ∂Fₓ/∂x = parcelas = resultado, ∂Fᵧ/∂y = parcelas = resultado, ∂F_z/∂z = parcelas = resultado (ex.: 2y + 0 = 2y), mostrando os termos nulos e sem repetir polinômios inteiros. Não use parênteses em Fₓ/Fᵧ/F_z: escreva ∂Fₓ/∂x e nunca ∂(Fₓ)/∂x. Escreva ∇·F uma única vez, com o resultado já ordenado e simplificado. Nunca use Rₓ para divergente. Em cálculos difíceis, preserve etapas essenciais. "
+                                + PADRAO_RESOLUCAO + "\n" + contexto_exemplos() + "\nConfira a FOTO ORIGINAL: " + enunciado + ". "
                                 "Se o exercício estiver ilegível ou faltarem dados, explique a limitação; não invente valores. "
                                 "Escreva em texto simples Unicode, sem Markdown, LaTeX, frac, partial ou nabla. REGRA OBRIGATÓRIA: "
                                 "toda integral definida deve ser escrita no formato INT{limite inferior}{limite superior}, "
@@ -3689,7 +3621,7 @@ def _gerar_resolucoes_extras(job_id, caminho, nome, exercicios):
                                 "Verifique cada trecho de curva, orientação, integrais e resultado. "
                                 "Se faltar trecho, CORRIJA a resolução INTEIRA, mostrando-o e "
                                 "recalculando a soma. Não altere o escopo do subitem. "
-                                "Se a solução estiver correta, devolva-a sem mudanças matemáticas. "
+                                "Mesmo se correta, complete todas as etapas omitidas. Não resuma. " + PADRAO_RESOLUCAO + " "
                                 "Preserve texto Unicode, títulos sem numeração, INT{inferior}{superior} "
                                 "para integrais definidas e Resultado final uma única vez. "
                                 "Em todo exercício, use Resultado final uma única vez, antes da última expressão. "
