@@ -1815,6 +1815,12 @@ async function carregarGaleria() {
                 abrirBibliotecaResolucoes(foto.nome);
             };
             card.appendChild(botaoResolucoes);
+            const baixarFoto = document.createElement("a");
+            baixarFoto.href = "/galeria/baixar/" + encodeURIComponent(foto.nome);
+            baixarFoto.textContent = "⬇️ BAIXAR FOTO";
+            baixarFoto.setAttribute("download", foto.nome);
+            baixarFoto.style.cssText = "display:block;margin:8px;padding:12px;text-align:center;background:#238636;color:white;border-radius:8px;font-weight:bold;text-decoration:none;touch-action:manipulation;";
+            card.appendChild(baixarFoto);
             galeriaGrid.appendChild(card);
         });
 
@@ -3823,6 +3829,13 @@ def api_galeria():
     except Exception as erro:
         print("ERRO LISTANDO GALERIA:", erro, flush=True)
         return jsonify({"erro": "Falha ao listar galeria."}), 500
+
+
+@app.route("/galeria/baixar/<nome>", methods=["GET"])
+def baixar_foto_galeria(nome):
+    if not nome.lower().endswith((".jpg", ".jpeg")):
+        return jsonify({"erro": "Formato de foto inválido."}), 404
+    return send_from_directory(PASTA_GALERIA, nome, as_attachment=True, download_name=nome)
 
 
 @app.route("/galeria/<path:nome>", methods=["GET"])
