@@ -747,6 +747,28 @@ audio {
             Servidor de áudio ESP32
         </div>
 
+
+
+        <div class="ia-status-card">
+            <div class="ia-status-topo">🤖 STATUS DA IA</div>
+            <div id="sistemaOcupacao" style="font-size:18px; font-weight:bold; margin-bottom:10px;">🟢 SISTEMA LIVRE</div>
+            <div id="iaStatusTitulo">⚪ IA AGUARDANDO</div>
+            <div id="iaStatusDetalhe">Aguardando uma nova foto ou uma escolha de exercício.</div>
+            <div id="iaStatusTempo">Neste estado há 0 s</div>
+        </div>
+
+        <div class="status-card">
+
+            <div id="espStatus" class="offline">
+                🔴 ESP32 DESCONECTADA
+            </div>
+
+            <div class="detalhe" id="espDetalhe">
+                Aguardando ESP32...
+            </div>
+
+        </div>
+
         <div class="status-card" id="painelVolumeIA" style="text-align:left;border:2px solid #58a6ff;background:#161b22;">
             <h2 style="margin-top:0;font-size:18px;">🔊 CONTROLE DE VOLUME DOS ÁUDIOS DA IA</h2>
             <label for="volumeGeracao">Volume: <strong id="volumeGeracaoValor">—</strong></label>
@@ -784,26 +806,6 @@ salvarVolumeGeracao.onclick = async () => {
 };
 carregarVolumeGeracao();
         </script>
-
-        <div class="ia-status-card">
-            <div class="ia-status-topo">🤖 STATUS DA IA</div>
-            <div id="sistemaOcupacao" style="font-size:18px; font-weight:bold; margin-bottom:10px;">🟢 SISTEMA LIVRE</div>
-            <div id="iaStatusTitulo">⚪ IA AGUARDANDO</div>
-            <div id="iaStatusDetalhe">Aguardando uma nova foto ou uma escolha de exercício.</div>
-            <div id="iaStatusTempo">Neste estado há 0 s</div>
-        </div>
-
-        <div class="status-card">
-
-            <div id="espStatus" class="offline">
-                🔴 ESP32 DESCONECTADA
-            </div>
-
-            <div class="detalhe" id="espDetalhe">
-                Aguardando ESP32...
-            </div>
-
-        </div>
 
         <div class="audio-card">
 
