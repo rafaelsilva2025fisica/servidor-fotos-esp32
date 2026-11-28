@@ -766,6 +766,11 @@ audio {
             📷 TIRAR FOTO
         </button>
 
+        <input id="fotoManualInput" type="file" accept="image/*" style="display:none;">
+        <button id="enviarFotoIA" style="background:#238636;color:white;">
+            📤 ENVIAR FOTO PARA IA
+        </button>
+
         <button id="galeria">
             🖼️ GALERIA
         </button>
@@ -1681,6 +1686,46 @@ botaoResetLimpo.onclick = async function() {
     }
 };
 
+
+const fotoManualInput = document.getElementById("fotoManualInput");
+const enviarFotoIA = document.getElementById("enviarFotoIA");
+enviarFotoIA.onclick = function() {
+    fotoManualInput.value = "";
+    fotoManualInput.click();
+};
+fotoManualInput.onchange = async function() {
+    const arquivo = fotoManualInput.files[0];
+    if (!arquivo) return;
+    enviarFotoIA.disabled = true;
+    mensagemCamera.textContent = "📤 Preparando foto para a IA...";
+    let url;
+    try {
+        url = URL.createObjectURL(arquivo);
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        const escala = Math.min(1, 4096 / Math.max(img.naturalWidth, img.naturalHeight));
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * escala));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * escala));
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const jpeg = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.95));
+        if (!jpeg) throw new Error("Não foi possível converter a imagem.");
+        const r = await fetch("/upload-foto", {method:"POST", headers:{"Content-Type":"image/jpeg", "X-Foto-Manual":"1"}, body:jpeg});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.erro || "Falha no envio.");
+        mensagemCamera.textContent = "✅ Foto enviada. Acompanhe a análise e as resoluções.";
+        abrirBibliotecaResolucoes(d.nome);
+    } catch (e) {
+        mensagemCamera.textContent = "❌ " + e.message;
+    } finally {
+        if (url) URL.revokeObjectURL(url);
+        enviarFotoIA.disabled = false;
+    }
+};
 
 botaoTirarFoto.onclick = async function() {
 
@@ -3176,7 +3221,7 @@ def executar_resolucao_padronizada(numero, imagem_url, arquivo_base_id=None):
 # IA - ANALISA SOMENTE A FOTO NOVA RECEBIDA DA ESP32
 # =========================================================
 
-def analisar_foto_nova_com_ia(caminho, nome):
+def analisar_foto_nova_com_ia(caminho, nome, manual=False):
     global exercicios_atuais, foto_sessao_atual, nome_foto_sessao_atual, quantidade_exercicios_sessao, gabarito_rapido_disponivel, texto_ultimo_gabarito, audios_exercicios_sessao, indice_audio_atual, id_audio_atual
 
     if openai_client is None:
@@ -3247,6 +3292,9 @@ def analisar_foto_nova_com_ia(caminho, nome):
                 quantidade_exercicios_sessao = 0
                 gabarito_rapido_disponivel = False
             adicionar_log_esp32("AVISO", "IA não encontrou exercício legível na foto.")
+            if manual and not esp_esta_online():
+                atualizar_status_ia("AGUARDANDO", "⚪ IA AGUARDANDO", "Nenhum exercício legível na foto manual.")
+                return
             criar_e_enviar_audio_ia(
                 "Não consegui detectar nenhum exercício legível nesta imagem. "
                 "Aguarde trinta segundos sem apertar o botão. Depois, tire outra foto.",
@@ -3321,7 +3369,10 @@ def analisar_foto_nova_com_ia(caminho, nome):
 
         texto_menu = identificacao + texto_menu_exercicios(exercicios, incluir_gabarito=gabarito_disponivel)
 
-        criar_e_enviar_audio_ia(texto_menu, menu=True, velocidade=1.0)
+        if not manual or esp_esta_online():
+            criar_e_enviar_audio_ia(texto_menu, menu=True, velocidade=1.0)
+        else:
+            atualizar_status_ia("AGUARDANDO", "⚪ IA AGUARDANDO", "Foto manual identificada; acompanhe a galeria de resoluções.")
 
         # Recurso EXTRA: só inicia depois do fluxo principal preparar o menu.
         # Não altera status_ia, esp_ws, áudios nem variáveis da sessão.
@@ -3666,6 +3717,13 @@ def arquivo_resolucao(nome):
 
 @app.route("/upload-foto", methods=["POST"])
 def upload_foto():
+    manual = request.headers.get("X-Foto-Manual") == "1"
+    if manual and openai_client is None:
+        return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
+    if manual:
+        with lock:
+            if status_ia.get("estado") != "AGUARDANDO":
+                return jsonify({"erro": "Sistema ocupado. Aguarde ou finalize a operação atual."}), 409
     dados = request.get_data(cache=False)
 
     if not dados:
@@ -3712,9 +3770,15 @@ def upload_foto():
 
 
     # A IA é disparada SOMENTE por esta foto nova já salva e validada.
+    if manual:
+        with lock:
+            if status_ia.get("estado") != "AGUARDANDO":
+                os.remove(caminho)
+                return jsonify({"erro": "Sistema ocupado."}), 409
+            atualizar_status_ia("LENDO_FOTO", "🟣 IA LENDO A FOTO...", "Foto manual recebida.")
     threading.Thread(
         target=analisar_foto_nova_com_ia,
-        args=(caminho, nome),
+        args=(caminho, nome, manual),
         daemon=True
     ).start()
 
