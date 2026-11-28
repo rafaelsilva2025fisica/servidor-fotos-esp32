@@ -271,7 +271,7 @@ def pagina():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>ESP32 Rafael V1</title>
+<title>ESP32 Rafael V1 - Controle de volume</title>
 
 <style>
 
@@ -740,11 +740,50 @@ audio {
     <div class="card">
 
         <h1>ESP32 Rafael V1</h1>
+        <p style="color:#58a6ff;font-size:12px;">Versão: volume destacado + áudio sob demanda</p>
         <p><a href="/treinador" style="color:#58a6ff;font-weight:bold">🧪 Laboratório de treinamento da IA — enviar exercício e testar narração</a></p>
 
         <div class="subtitulo">
             Servidor de áudio ESP32
         </div>
+
+        <div class="status-card" id="painelVolumeIA" style="text-align:left;border:2px solid #58a6ff;background:#161b22;">
+            <h2 style="margin-top:0;font-size:18px;">🔊 CONTROLE DE VOLUME DOS ÁUDIOS DA IA</h2>
+            <label for="volumeGeracao">Volume: <strong id="volumeGeracaoValor">—</strong></label>
+            <input id="volumeGeracao" type="range" min="0" max="100" step="1" value="50" disabled style="width:100%;margin:15px 0;accent-color:#58a6ff;height:26px;">
+            <button id="salvarVolumeGeracao" disabled style="background:#238636;color:white;width:100%;">SALVAR VOLUME</button>
+            <div id="volumeGeracaoStatus" class="detalhe" role="status">Carregando configuração...</div>
+            <p style="font-size:13px;color:#c9d1d9;margin-bottom:0;">Aplica-se aos novos áudios da IA, inclusive os enviados à ESP32. 0% = mudo; 100% = volume original.</p>
+        </div>
+        <script>
+const volumeGeracao = document.getElementById("volumeGeracao");
+const volumeGeracaoValor = document.getElementById("volumeGeracaoValor");
+const salvarVolumeGeracao = document.getElementById("salvarVolumeGeracao");
+const volumeGeracaoStatus = document.getElementById("volumeGeracaoStatus");
+volumeGeracao.oninput = () => { volumeGeracaoValor.textContent = volumeGeracao.value + "%"; volumeGeracaoStatus.textContent = "Alteração ainda não salva."; };
+async function carregarVolumeGeracao() {
+    try {
+        const r = await fetch("/api/config-volume", {cache:"no-store"});
+        if (!r.ok) throw new Error("Falha ao consultar volume");
+        const d = await r.json();
+        volumeGeracao.value = d.volume;
+        volumeGeracaoValor.textContent = d.volume + "%";
+        volumeGeracaoStatus.textContent = "Volume salvo: " + d.volume + "%. Aplica-se aos novos áudios.";
+        volumeGeracao.disabled = salvarVolumeGeracao.disabled = false;
+    } catch(e) { volumeGeracaoStatus.textContent = e.message; }
+}
+salvarVolumeGeracao.onclick = async () => {
+    volumeGeracao.disabled = salvarVolumeGeracao.disabled = true;
+    try {
+        const r = await fetch("/api/config-volume", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({volume:Number(volumeGeracao.value)})});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.erro || "Falha ao salvar");
+        volumeGeracaoStatus.textContent = "Volume salvo: " + d.volume + "%. Aplica-se aos novos áudios.";
+    } catch(e) { volumeGeracaoStatus.textContent = e.message; }
+    finally { volumeGeracao.disabled = salvarVolumeGeracao.disabled = false; }
+};
+carregarVolumeGeracao();
+        </script>
 
         <div class="ia-status-card">
             <div class="ia-status-topo">🤖 STATUS DA IA</div>
@@ -766,13 +805,6 @@ audio {
 
         </div>
 
-        <div class="status-card" style="text-align:left;">
-            <h2 style="margin-top:0;font-size:18px;">🔊 Volume de geração da IA</h2>
-            <label for="volumeGeracao">Volume: <strong id="volumeGeracaoValor">—</strong></label>
-            <input id="volumeGeracao" type="range" min="0" max="100" step="1" value="50" disabled style="width:100%;margin:15px 0;">
-            <button id="salvarVolumeGeracao" disabled style="background:#238636;color:white;width:100%;">SALVAR CONFIGURAÇÃO</button>
-            <div id="volumeGeracaoStatus" class="detalhe" role="status">Carregando configuração...</div>
-        </div>
         <div class="audio-card">
 
             <h2>🎙️ Enviar áudio</h2>
@@ -1070,33 +1102,6 @@ let partes = [];
 let audioBlob = null;
 let audioAtualId = null;
 
-const volumeGeracao = document.getElementById("volumeGeracao");
-const volumeGeracaoValor = document.getElementById("volumeGeracaoValor");
-const salvarVolumeGeracao = document.getElementById("salvarVolumeGeracao");
-const volumeGeracaoStatus = document.getElementById("volumeGeracaoStatus");
-volumeGeracao.oninput = () => { volumeGeracaoValor.textContent = volumeGeracao.value + "%"; volumeGeracaoStatus.textContent = "Alteração ainda não salva."; };
-async function carregarVolumeGeracao() {
-    try {
-        const r = await fetch("/api/config-volume", {cache:"no-store"});
-        if (!r.ok) throw new Error("Falha ao consultar volume");
-        const d = await r.json();
-        volumeGeracao.value = d.volume;
-        volumeGeracaoValor.textContent = d.volume + "%";
-        volumeGeracaoStatus.textContent = "Volume salvo: " + d.volume + "%. Aplica-se aos novos áudios.";
-        volumeGeracao.disabled = salvarVolumeGeracao.disabled = false;
-    } catch(e) { volumeGeracaoStatus.textContent = e.message; }
-}
-salvarVolumeGeracao.onclick = async () => {
-    volumeGeracao.disabled = salvarVolumeGeracao.disabled = true;
-    try {
-        const r = await fetch("/api/config-volume", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({volume:Number(volumeGeracao.value)})});
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.erro || "Falha ao salvar");
-        volumeGeracaoStatus.textContent = "Volume salvo: " + d.volume + "%. Aplica-se aos novos áudios.";
-    } catch(e) { volumeGeracaoStatus.textContent = e.message; }
-    finally { volumeGeracao.disabled = salvarVolumeGeracao.disabled = false; }
-};
-carregarVolumeGeracao();
 const botaoGravar = document.getElementById("gravar");
 const botaoParar = document.getElementById("parar");
 const botaoEnviar = document.getElementById("enviar");
